@@ -184,6 +184,8 @@ class AplicacionPrincipal(ctk.CTk):
 
 
 def iniciar_aplicacion():
+    ctk.set_appearance_mode("System")
+
     try:
         inicializar_base_de_datos()
     except (OSError, sqlite3.Error) as error:
