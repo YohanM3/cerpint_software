@@ -23,17 +23,14 @@ class InventarioController:
             self.tabla_model, self.vista.tabla_inventario
         )
 
-        # Conectar botones con sus acciones
         self.vista.btn_guardar.configure(command=self.registrar_producto)
         self.vista.btn_actualizar.configure(command=self.modificar_producto)
         self.vista.btn_eliminar.configure(command=self.eliminar_producto)
 
-        # Evento de clic en la tabla para cargar datos
         self.vista.tabla_inventario.tabla.bind(
             "<ButtonRelease-1>", self.cargar_producto_seleccionado
         )
 
-        # Cargar datos iniciales en la tabla
         self.actualizar_tabla()
 
     def actualizar_tabla(self):

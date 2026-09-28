@@ -13,8 +13,10 @@ class BotonView(ctk.CTkButton):
     """Maneja únicamente la apariencia gráfica del botón."""
 
     def __init__(self, master, texto="Botón", command=None, **kwargs):
+        self._accion_pendiente = command
+        self.modelo = None
+        self.controlador = None
         estado = kwargs.get("state", "normal")
-        # Extraemos los argumentos de estilo para no duplicarlos en kwargs
         ancho = kwargs.pop("width", 160)
         alto = kwargs.pop("height", 40)
         radio = kwargs.pop("corner_radius", 8)
@@ -31,7 +33,7 @@ class BotonView(ctk.CTkButton):
         super().__init__(
             master=master,
             text=texto,
-            command=command,  # Usamos 'command' en inglés directamente
+            command=command,
             width=ancho,
             height=alto,
             corner_radius=radio,
@@ -43,21 +45,25 @@ class BotonView(ctk.CTkButton):
         )
 
         self.modelo = BotonModel(texto, habilitado=(estado != "disabled"))
-        self.controlador = BotonController(self.modelo, self, command)
+        self.controlador = BotonController(self.modelo, self, self._accion_pendiente)
 
     def configure(self, **kwargs):
-        if hasattr(self, "controlador") and "command" in kwargs:
+        controlador = getattr(self, "controlador", None)
+        if "command" in kwargs:
             accion = kwargs["command"]
-            if accion != self.controlador.procesar_clic:
-                self.controlador.funcion_accion = accion
-            kwargs["command"] = self.controlador.procesar_clic
+            self._accion_pendiente = accion
+            if controlador is not None:
+                if accion != controlador.procesar_clic:
+                    controlador.funcion_accion = accion
+                kwargs["command"] = controlador.procesar_clic
         return super().configure(**kwargs)
 
     config = configure
 
     def cambiar_estado(self, activo: bool):
         """Cambia el aspecto visual entre activo y deshabilitado."""
-        self.modelo.habilitado = activo
+        if self.modelo is not None:
+            self.modelo.habilitado = activo
         self.configure(state="normal" if activo else "disabled")
 
     def actualizar_texto(self, nuevo_texto: str):

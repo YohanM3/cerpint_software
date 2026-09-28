@@ -3,7 +3,6 @@ import os
 import sys
 from datetime import date, timedelta
 
-# Asegurar la ruta raíz del proyecto
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from database.conexion import inicializar_base_de_datos, transaccion
@@ -16,7 +15,6 @@ def sembrar_datos():
     with transaccion() as conn:
         cursor = conn.cursor()
 
-        # --- DATOS DE PRUEBA: CLIENTES ---
         clientes_prueba = [
             ("V-12345678", "Juan Pérez", "0414-1234567", "Av. Principal Nro 12"),
             ("V-87654321", "María Delgado", "0424-7654321", "Calle 5 de Mayo #45"),
@@ -44,7 +42,6 @@ def sembrar_datos():
         )
         print("Clientes procesados correctamente.")
 
-        # --- DATOS DE PRUEBA: PRODUCTOS ---
         productos_prueba = [
             ("PROD-001", "Martillo de Uña 16oz Stanley", 12.50, 25),
             ("PROD-002", "Juego de Alicates 3 pzas Truper", 18.00, 15),

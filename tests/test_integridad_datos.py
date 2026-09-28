@@ -12,6 +12,7 @@ from modulos.inventario.inventario_model import InventarioModel
 from modulos.ventas.ventas_controller import VentasController
 from modulos.ventas.ventas_model import VentasModel
 from sembrar_datos import sembrar_notas_demo
+from servicios.auditoria import establecer_sesion
 
 
 class IntegridadDatosTests(unittest.TestCase):
@@ -33,6 +34,34 @@ class IntegridadDatosTests(unittest.TestCase):
         self.assertFalse(
             self.inventario.agregar_producto("PROD-004", "Duplicado", 1, 1)
         )
+
+    def test_cuentas_predeterminadas_tienen_roles_permitidos(self):
+        with conexion.transaccion() as conn:
+            roles = dict(
+                conn.execute(
+                    "SELECT usuario, rol FROM usuarios WHERE usuario IN ('admin', 'consultor')"
+                ).fetchall()
+            )
+
+        self.assertEqual(
+            roles,
+            {"admin": "administrador", "consultor": "consultor"},
+        )
+
+    def test_transaccion_hace_rollback_explicito_ante_error(self):
+        conexion_falsa = MagicMock()
+        with patch.object(conexion, "obtener_conexion", return_value=conexion_falsa):
+            with self.assertRaises(sqlite3.IntegrityError):
+                with conexion.transaccion():
+                    raise sqlite3.IntegrityError("Error de trigger")
+
+        conexion_falsa.rollback.assert_called_once_with()
+        conexion_falsa.close.assert_called_once_with()
+
+    def test_valor_total_inventario_se_formatea_con_dos_decimales(self):
+        self.inventario.agregar_producto("P-MON", "Producto Moneda", 12.5, 2)
+
+        self.assertEqual(ConsultasModel.valor_total_inventario(), "25.00")
 
     def test_modelos_rechazan_campos_vacios_y_valores_negativos(self):
         with self.assertRaises(ValueError):
@@ -123,6 +152,28 @@ class IntegridadDatosTests(unittest.TestCase):
         self.assertEqual(estado, "Pagado")
         self.assertEqual(dias_credito, 0)
         self.assertIsNone(fecha_vencimiento)
+
+    def test_venta_registra_auditoria_y_crea_respaldo(self):
+        self.clientes.agregar_cliente("CLI-AUD", "Cliente Auditoría")
+        self.inventario.agregar_producto("P-AUD", "Producto Auditado", 7.5, 1)
+        establecer_sesion("admin", "administrador")
+        venta = VentasModel()
+        venta.agregar_item("P-AUD", "Producto Auditado", 1, 7.5)
+        venta_id = venta.procesar_venta_bd("CLI-AUD")[0]
+
+        with conexion.transaccion() as conn:
+            evento = conn.execute(
+                "SELECT usuario, rol, accion, entidad, referencia FROM auditoria "
+                "WHERE entidad = 'venta' AND referencia = ?",
+                (str(venta_id),),
+            ).fetchone()
+
+        self.assertEqual(
+            evento, ("admin", "administrador", "CREAR", "venta", str(venta_id))
+        )
+        self.assertTrue(
+            list((self.database_path.parent / "respaldos").glob("ferreteria_*.db"))
+        )
 
     def test_procesar_venta_emite_pdf_desde_el_controlador(self):
         venta = VentasModel()
@@ -452,10 +503,61 @@ class IntegridadDatosTests(unittest.TestCase):
         self.assertEqual(stock, 5)
         self.assertEqual(nota["registro"], "Anulada")
         self.assertEqual(nota["motivo_anulacion"], "Devolución completa")
+        self.assertEqual(
+            VentasModel.obtener_ventas_por_cliente("CLI-ANUL")[0]["registro"],
+            "Anulada",
+        )
+        self.assertEqual(
+            VentasModel.obtener_detalle_venta(venta_id)["registro"], "Anulada"
+        )
         self.assertNotIn(
-            venta_id, {fila["venta_id"] for fila in consultor.obtener_notas_pendientes()}
+            venta_id,
+            {fila["venta_id"] for fila in consultor.obtener_notas_pendientes()},
         )
         self.assertEqual(consultor.obtener_productos_mas_vendidos(), [])
+
+    def test_nota_anulada_no_puede_volver_a_credito(self):
+        self.clientes.agregar_cliente("CLI-ANUL-ESTADO", "Cliente Anulado")
+        self.inventario.agregar_producto("P-ANUL-ESTADO", "Producto Anulado", 8, 1)
+        venta = VentasModel()
+        venta.agregar_item("P-ANUL-ESTADO", "Producto Anulado", 1, 8)
+        venta_id = venta.procesar_venta_bd("CLI-ANUL-ESTADO")[0]
+
+        consultor = ConsultasModel()
+        self.assertTrue(consultor.anular_venta(venta_id, "Prueba de estado"))
+        self.assertFalse(consultor.marcar_venta_como_pendiente(venta_id))
+
+        with conexion.transaccion() as conn:
+            estado, fecha_anulacion = conn.execute(
+                "SELECT estado, fecha_anulacion FROM ventas WHERE id = ?", (venta_id,)
+            ).fetchone()
+        self.assertEqual(estado, "Pagado")
+        self.assertIsNotNone(fecha_anulacion)
+
+    def test_detalle_venta_rechaza_subtotal_inconsistente(self):
+        self.clientes.agregar_cliente("CLI-DETALLE", "Cliente Detalle")
+        self.inventario.agregar_producto("P-DETALLE", "Producto Detalle", 10, 2)
+
+        with conexion.transaccion() as conn:
+            venta_id = conn.execute(
+                """
+                INSERT INTO ventas (cliente_documento, total, total_centavos, estado)
+                VALUES (?, ?, ?, ?)
+                """,
+                ("CLI-DETALLE", 20, 2000, "Pagado"),
+            ).lastrowid
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            with conexion.transaccion() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO detalles_venta (
+                        venta_id, producto_codigo, cantidad, precio_unitario, subtotal,
+                        precio_unitario_centavos, subtotal_centavos
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (venta_id, "P-DETALLE", 2, 10, 15, 1000, 1500),
+                )
 
     def test_foreign_keys_protegen_historial(self):
         self.clientes.agregar_cliente("CLI-2", "Cliente Dos")

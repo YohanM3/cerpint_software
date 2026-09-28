@@ -1,6 +1,3 @@
-# componentes/entrada/entrada_controller.py
-
-
 class EntradaController:
     """Conecta los datos y la vista de la caja de texto."""
 

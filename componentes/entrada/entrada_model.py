@@ -1,6 +1,3 @@
-# componentes/entrada/entrada_model.py
-
-
 class EntradaModel:
     """Guarda los datos e información interna de la caja de texto."""
 

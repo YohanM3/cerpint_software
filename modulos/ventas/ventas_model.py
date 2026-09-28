@@ -1,7 +1,10 @@
+from contextlib import closing
 from decimal import Decimal, InvalidOperation
 
 from database.conexion import transaccion
 from database.errores import InventarioInsuficienteError, ValidacionError
+from servicios.auditoria import registrar_evento
+from servicios.respaldo import crear_respaldo
 
 
 class VentasModel:
@@ -102,6 +105,8 @@ class VentasModel:
             dias_credito = 0
 
         total = self.calcular_total()
+        total_centavos = int(total * 100)
+        crear_respaldo()
         with transaccion() as conn:
             cursor = conn.cursor()
 
@@ -150,7 +155,7 @@ class VentasModel:
                 (
                     cliente_fmt,
                     float(total),
-                    int(total * 100),
+                    total_centavos,
                     estado_fmt,
                     dias_credito,
                     es_credito,
@@ -186,6 +191,20 @@ class VentasModel:
                     ),
                 )
 
+            subtotal_centavos = cursor.execute(
+                "SELECT COALESCE(SUM(subtotal_centavos), 0) FROM detalles_venta WHERE venta_id = ?",
+                (venta_id,),
+            ).fetchone()[0]
+            if subtotal_centavos != total_centavos:
+                raise RuntimeError("El total de la venta no coincide con sus detalles.")
+            registrar_evento(
+                cursor,
+                "CREAR",
+                "venta",
+                venta_id,
+                f"Total: {total_centavos} centavos",
+            )
+
             items_procesados = [
                 {
                     "codigo": item["codigo"],
@@ -208,19 +227,18 @@ class VentasModel:
         """Devuelve el historial de ventas registradas para un cliente."""
         from database.conexion import obtener_conexion
 
-        conn = obtener_conexion()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT id, fecha, total, total_centavos, estado
-            FROM ventas
-            WHERE cliente_documento = ?
-            ORDER BY fecha DESC
-        """,
-            (str(cliente_id).strip().upper(),),
-        )
-        filas = cursor.fetchall()
-        conn.close()
+        with closing(obtener_conexion()) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, fecha, total, total_centavos, estado, fecha_anulacion
+                FROM ventas
+                WHERE cliente_documento = ?
+                ORDER BY fecha DESC
+            """,
+                (str(cliente_id).strip().upper(),),
+            )
+            filas = cursor.fetchall()
         return [
             {
                 "venta_id": f[0],
@@ -229,6 +247,7 @@ class VentasModel:
                 "total": f[2],
                 "estado_pago": f[4],
                 "total_centavos": f[3],
+                "registro": "Anulada" if f[5] else "Activa",
             }
             for f in filas
         ]
@@ -238,34 +257,33 @@ class VentasModel:
         """Recupera los datos completos de una venta para reimprimir el PDF o consultar."""
         from database.conexion import obtener_conexion
 
-        conn = obtener_conexion()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-                 SELECT v.id, v.fecha, v.total, v.cliente_documento,
-                     c.nombre, c.telefono, c.direccion, v.estado
-            FROM ventas v
-            JOIN clientes c ON c.documento = v.cliente_documento
-            WHERE v.id = ?
-        """,
-            (venta_id,),
-        )
-        venta = cursor.fetchone()
-        if not venta:
-            conn.close()
-            return None
+        with closing(obtener_conexion()) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                     SELECT v.id, v.fecha, v.total, v.cliente_documento,
+                         c.nombre, c.telefono, c.direccion, v.estado,
+                         v.fecha_anulacion
+                FROM ventas v
+                JOIN clientes c ON c.documento = v.cliente_documento
+                WHERE v.id = ?
+            """,
+                (venta_id,),
+            )
+            venta = cursor.fetchone()
+            if not venta:
+                return None
 
-        cursor.execute(
-            """
-            SELECT d.producto_codigo, p.nombre, d.cantidad, d.precio_unitario, d.subtotal
-            FROM detalles_venta d
-            JOIN productos p ON p.codigo = d.producto_codigo
-            WHERE d.venta_id = ?
-        """,
-            (venta_id,),
-        )
-        detalles = cursor.fetchall()
-        conn.close()
+            cursor.execute(
+                """
+                SELECT d.producto_codigo, p.nombre, d.cantidad, d.precio_unitario, d.subtotal
+                FROM detalles_venta d
+                JOIN productos p ON p.codigo = d.producto_codigo
+                WHERE d.venta_id = ?
+            """,
+                (venta_id,),
+            )
+            detalles = cursor.fetchall()
 
         items = [
             {
@@ -284,6 +302,7 @@ class VentasModel:
             "fecha": venta[1],
             "total": venta[2],
             "estado_pago": venta[7],
+            "registro": "Anulada" if venta[8] else "Activa",
             "cliente": {
                 "documento": venta[3],
                 "nombre": venta[4],

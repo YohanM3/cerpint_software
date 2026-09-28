@@ -217,7 +217,7 @@ class ConsultasView(ctk.CTkFrame):
         except ValueError:
             pass
         try:
-            numero = Decimal(texto.replace(",", "."))
+            numero = Decimal(texto.replace(",", ""))
             if numero.is_finite():
                 return 0, numero
         except InvalidOperation:

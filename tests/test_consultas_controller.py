@@ -30,13 +30,16 @@ def crear_vista_consultas():
     return vista
 
 
-def crear_controlador(modelo=None, clientes_model=None):
+def crear_controlador(modelo=None, clientes_model=None, solo_lectura=False):
     vista = crear_vista_consultas()
-    modelo = modelo or Mock()
-    modelo.notas_pendientes_por_pagar.return_value = []
-    modelo.obtener_historial_notas.return_value = []
+    if modelo is None:
+        modelo = Mock()
+        modelo.notas_pendientes_por_pagar.return_value = []
+        modelo.obtener_historial_notas.return_value = []
     clientes_model = clientes_model or Mock()
-    controlador = ConsultasController(modelo, vista, clientes_model)
+    controlador = ConsultasController(
+        modelo, vista, clientes_model, solo_lectura=solo_lectura
+    )
     return controlador, vista, modelo, clientes_model
 
 
@@ -88,3 +91,45 @@ def test_consulta_global_acepta_fechas_vacias_o_rango_completo():
 
     modelo.obtener_historial_notas.assert_called_with("2026-01-01", "2026-01-31")
     vista.txt_cliente.limpiar.assert_called()
+
+
+def test_consultas_formatea_importes_monetarios_en_la_tabla():
+    modelo = Mock()
+    modelo.notas_pendientes_por_pagar.return_value = [
+        (
+            1,
+            "2026-01-01",
+            "CLI-1",
+            "Cliente Uno",
+            12.5,
+            "A Credito",
+            7.5,
+            30,
+            "2026-01-31",
+            3,
+            "Vigente",
+        )
+    ]
+    modelo.obtener_historial_notas.return_value = []
+
+    _, vista, _, _ = crear_controlador(modelo)
+
+    filas = vista.mostrar_tabla.call_args.args[1]
+    assert filas[0][4] == "12.50"
+    assert filas[0][6] == "7.50"
+
+
+def test_consultor_no_puede_cambiar_o_anular_notas():
+    controlador, vista, modelo, _ = crear_controlador(solo_lectura=True)
+
+    with __import__("unittest.mock").mock.patch(
+        "modulos.consultas.consultas_controller.messagebox.showwarning"
+    ) as advertencia:
+        controlador.cambiar_pago_nota_seleccionada()
+        controlador.anular_nota_seleccionada()
+
+    vista.btn_cambiar_pago.cambiar_estado.assert_called_with(False)
+    vista.btn_anular_nota.cambiar_estado.assert_called_with(False)
+    modelo.alternar_pago_nota.assert_not_called()
+    modelo.anular_venta.assert_not_called()
+    assert advertencia.call_count == 2

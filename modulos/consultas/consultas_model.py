@@ -2,6 +2,9 @@ import csv
 import sqlite3
 from contextlib import closing
 from datetime import date
+from decimal import Decimal, InvalidOperation
+from servicios.auditoria import registrar_evento
+from servicios.respaldo import crear_respaldo
 
 try:
     from database.conexion import obtener_conexion, transaccion
@@ -19,6 +22,17 @@ except ModuleNotFoundError:
 
 class ConsultasModel:
     """Modela las consultas y reportes del sistema."""
+
+    @staticmethod
+    def formatear_moneda(monto) -> str:
+        """Convierte un importe numérico a la representación usada por la interfaz."""
+        try:
+            valor = Decimal(str(monto if monto is not None else 0)).quantize(
+                Decimal("0.01")
+            )
+        except (InvalidOperation, ValueError):
+            valor = Decimal("0.00")
+        return f"{valor:,.2f}"
 
     @staticmethod
     def _consultar(sql: str, parametros=()):
@@ -88,6 +102,7 @@ class ConsultasModel:
             raise ValidacionError("El número de nota no es válido.")
 
         try:
+            crear_respaldo()
             with transaccion() as conn:
                 cursor = conn.execute(
                     "UPDATE ventas SET estado = 'A Credito', "
@@ -95,10 +110,20 @@ class ConsultasModel:
                     "fecha_vencimiento = COALESCE(fecha_vencimiento, DATE('now', '+' || "
                     "CASE WHEN dias_credito < 1 THEN 30 ELSE dias_credito END || ' days')) "
                     "WHERE id = ? "
+                    "AND fecha_anulacion IS NULL "
                     "AND LOWER(TRIM(estado)) NOT IN ('pendiente', 'a credito', 'a crédito')",
                     (identificador,),
                 )
-                return cursor.rowcount == 1
+                actualizada = cursor.rowcount == 1
+                if actualizada:
+                    registrar_evento(
+                        cursor,
+                        "ACTUALIZAR",
+                        "venta",
+                        identificador,
+                        "Marcada a crédito",
+                    )
+                return actualizada
         except sqlite3.Error as error:
             raise RuntimeError(f"No se pudo actualizar la nota: {error}") from error
 
@@ -113,6 +138,7 @@ class ConsultasModel:
             raise ValidacionError("El número de nota no es válido.")
 
         try:
+            crear_respaldo()
             with transaccion() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
@@ -125,7 +151,9 @@ class ConsultasModel:
                     raise ValidacionError("La nota seleccionada no existe.")
                 estado, dias_credito, fecha_vencimiento, fecha_anulacion = venta
                 if fecha_anulacion:
-                    raise ValidacionError("No se puede cambiar el pago de una nota anulada.")
+                    raise ValidacionError(
+                        "No se puede cambiar el pago de una nota anulada."
+                    )
 
                 esta_pagada = (estado or "").strip().casefold() in {
                     "pagado",
@@ -145,6 +173,13 @@ class ConsultasModel:
                             "DATE(fecha, '+' || dias_credito || ' days')) WHERE id = ?",
                             (identificador,),
                         )
+                    registrar_evento(
+                        cursor,
+                        "ACTUALIZAR",
+                        "venta",
+                        identificador,
+                        "Estado: A Credito",
+                    )
                     return "A Credito"
 
                 if (estado or "").strip().casefold() not in {
@@ -152,14 +187,21 @@ class ConsultasModel:
                     "a credito",
                     "a crédito",
                 }:
-                    raise ValidacionError("La situación de pago de la nota no es válida.")
+                    raise ValidacionError(
+                        "La situación de pago de la nota no es válida."
+                    )
                 cursor.execute(
                     "UPDATE ventas SET estado = 'Pagado' WHERE id = ?",
                     (identificador,),
                 )
+                registrar_evento(
+                    cursor, "ACTUALIZAR", "venta", identificador, "Estado: Pagado"
+                )
                 return "Pagado"
         except sqlite3.Error as error:
-            raise RuntimeError(f"No se pudo cambiar el estado de pago: {error}") from error
+            raise RuntimeError(
+                f"No se pudo cambiar el estado de pago: {error}"
+            ) from error
 
     @staticmethod
     def anular_venta(venta_id, motivo):
@@ -175,6 +217,7 @@ class ConsultasModel:
             raise ValidacionError("Debes indicar el motivo de la anulación.")
 
         try:
+            crear_respaldo()
             with transaccion() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
@@ -209,6 +252,7 @@ class ConsultasModel:
                 )
                 if cursor.rowcount != 1:
                     raise RuntimeError("La nota ya fue anulada por otro proceso.")
+                registrar_evento(cursor, "ANULAR", "venta", identificador, motivo)
                 return True
         except sqlite3.Error as error:
             raise RuntimeError(f"No se pudo anular la nota: {error}") from error
@@ -241,7 +285,8 @@ class ConsultasModel:
             """
             SELECT v.id AS venta_id, v.fecha, v.cliente_documento,
                     c.nombre AS cliente_nombre, v.total,
-                    CASE WHEN LOWER(TRIM(v.estado)) IN ('pendiente', 'a credito', 'a crédito')
+                    CASE WHEN v.fecha_anulacion IS NOT NULL THEN 'Anulada'
+                        WHEN LOWER(TRIM(v.estado)) IN ('pendiente', 'a credito', 'a crédito')
                         THEN 'A Credito' ELSE 'Contado' END AS estado,
                     v.metodo_pago
             FROM ventas v
@@ -502,9 +547,9 @@ class ConsultasModel:
                 nota["fecha"],
                 nota["cliente_documento"],
                 nota["cliente_nombre"],
-                nota["total"],
+                ConsultasModel.formatear_moneda(nota["total"]),
                 nota["estado"],
-                nota["saldo_pendiente"],
+                ConsultasModel.formatear_moneda(nota["saldo_pendiente"]),
                 nota["dias_credito"],
                 nota["fecha_vencimiento"],
                 nota["dias_restantes"],
@@ -632,7 +677,7 @@ class ConsultasModel:
                 FROM productos
                 """)
             valor = cursor.fetchone()[0]
-            return float(valor or 0.0)
+            return ConsultasModel.formatear_moneda(valor)
 
     @staticmethod
     def total_productos_distintos():
@@ -662,7 +707,7 @@ class ConsultasModel:
                 (inicio, fin),
             )
             total = cursor.fetchone()[0]
-            return float(total or 0.0)
+            return ConsultasModel.formatear_moneda(total)
 
     @staticmethod
     def productos_mas_vendidos(limit: int = 5):
@@ -717,14 +762,19 @@ class ConsultasModel:
             return cursor.fetchall()
 
     @staticmethod
-    def exportar_csv(nombre_archivo: str, columnas, filas):
+    def exportar_csv(nombre_archivo: str, columnas: list, filas: list) -> str:
         """Exporta una lista de filas a un archivo CSV."""
         if not nombre_archivo:
             raise ValidacionError("Debes indicar un nombre de archivo para exportar.")
 
-        with open(nombre_archivo, "w", newline="", encoding="utf-8") as archivo:
-            escritor = csv.writer(archivo)
-            escritor.writerow(columnas)
-            for fila in filas:
-                escritor.writerow(fila)
+        try:
+            with open(nombre_archivo, "w", newline="", encoding="utf-8-sig") as archivo:
+                escritor = csv.writer(archivo)
+                escritor.writerow(columnas)
+                for fila in filas:
+                    escritor.writerow(fila)
+        except OSError as error:
+            raise RuntimeError(
+                f"No se pudo exportar el archivo CSV: {error}"
+            ) from error
         return nombre_archivo

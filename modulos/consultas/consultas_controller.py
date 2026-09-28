@@ -8,10 +8,11 @@ from modulos.consultas.consultas_model import ConsultasModel
 class ConsultasController:
     """Controla la lógica de reportes y consultas."""
 
-    def __init__(self, modelo, vista, clientes_model=None):
+    def __init__(self, modelo, vista, clientes_model=None, solo_lectura=False):
         self.modelo = modelo
         self.vista = vista
         self.clientes_model = clientes_model or ClientesModel()
+        self.solo_lectura = solo_lectura
         self.sugerencias_cliente = []
         self.indice_cliente = -1
         self.cliente_seleccionado = None
@@ -21,7 +22,9 @@ class ConsultasController:
         self.vista.btn_periodo.configure(command=self.consultar_periodo)
         self.vista.btn_cliente.configure(command=self.consultar_notas_cliente)
         self.vista.btn_reposicion.configure(command=self.consultar_reposicion)
-        self.vista.btn_cambiar_pago.configure(command=self.cambiar_pago_nota_seleccionada)
+        self.vista.btn_cambiar_pago.configure(
+            command=self.cambiar_pago_nota_seleccionada
+        )
         self.vista.btn_anular_nota.configure(command=self.anular_nota_seleccionada)
         self.vista.tabla_reportes.tabla.bind(
             "<<TreeviewSelect>>", self.actualizar_acciones_nota
@@ -43,7 +46,15 @@ class ConsultasController:
         self.vista.txt_dias_analisis.bind(
             "<Return>", lambda _event: self.consultar_reposicion()
         )
+        self.establecer_solo_lectura(solo_lectura)
         self.consultar_notas_pendientes()
+
+    def establecer_solo_lectura(self, solo_lectura):
+        """Restringe las acciones que cambian el estado de una nota."""
+        self.solo_lectura = solo_lectura
+        if solo_lectura:
+            self.vista.btn_cambiar_pago.cambiar_estado(False)
+            self.vista.btn_anular_nota.cambiar_estado(False)
 
     @staticmethod
     def _es_tecla_de_navegacion(event):
@@ -126,7 +137,11 @@ class ConsultasController:
 
     def actualizar_acciones_nota(self, _event=None):
         nota = self._nota_seleccionada()
-        activo = nota is not None and nota[1].get("Registro", "Activa") != "Anulada"
+        activo = (
+            not self.solo_lectura
+            and nota is not None
+            and nota[1].get("Registro", "Activa") != "Anulada"
+        )
         self.vista.btn_cambiar_pago.cambiar_estado(activo)
         self.vista.btn_anular_nota.cambiar_estado(activo)
         if activo:
@@ -139,6 +154,11 @@ class ConsultasController:
         return "break"
 
     def cambiar_pago_nota_seleccionada(self):
+        if self.solo_lectura:
+            messagebox.showwarning(
+                "Acceso restringido", "El consultor solo puede consultar."
+            )
+            return
         nota = self._nota_seleccionada()
         if nota is None or nota[1].get("Registro", "Activa") == "Anulada":
             messagebox.showwarning("Atención", "Selecciona una nota activa.")
@@ -151,9 +171,13 @@ class ConsultasController:
             except (TypeError, ValueError):
                 dias_credito = 0
             if dias_credito == 0:
-                detalle = "Al revertir este contado, la nota quedará vencida de inmediato."
+                detalle = (
+                    "Al revertir este contado, la nota quedará vencida de inmediato."
+                )
             else:
-                detalle = "La nota volverá a vigente o vencida según su vencimiento original."
+                detalle = (
+                    "La nota volverá a vigente o vencida según su vencimiento original."
+                )
             pregunta = f"¿Revertir el pago de la nota Nº {venta_id:05d}?\n\n{detalle}"
         else:
             pregunta = f"¿Marcar la nota Nº {venta_id:05d} como pagada?"
@@ -175,9 +199,16 @@ class ConsultasController:
         self._refrescar_consulta_actual()
 
     def anular_nota_seleccionada(self):
+        if self.solo_lectura:
+            messagebox.showwarning(
+                "Acceso restringido", "El consultor solo puede consultar."
+            )
+            return
         nota = self._nota_seleccionada()
         if nota is None or nota[1].get("Registro", "Activa") == "Anulada":
-            messagebox.showwarning("Atención", "Selecciona una nota activa para anular.")
+            messagebox.showwarning(
+                "Atención", "Selecciona una nota activa para anular."
+            )
             return
         venta_id, datos = nota
         motivo = simpledialog.askstring(
@@ -246,9 +277,28 @@ class ConsultasController:
             "Días restantes",
             "Situación",
         ]
+        datos = self._formatear_montos(columnas, datos)
         self.vista.mostrar_tabla(columnas, datos)
         self.vista.ultimo_resultado = {"columnas": columnas, "filas": datos}
         self.actualizar_acciones_nota()
+
+    @staticmethod
+    def _formatear_montos(columnas, filas):
+        """Formatea sólo los importes numéricos antes de mostrarlos en la tabla."""
+        columnas_monetarias = {"Total", "Saldo pendiente"}
+        indices = [
+            indice
+            for indice, columna in enumerate(columnas)
+            if columna in columnas_monetarias
+        ]
+        filas_formateadas = []
+        for fila in filas:
+            valores = list(fila)
+            for indice in indices:
+                if isinstance(valores[indice], (int, float)):
+                    valores[indice] = ConsultasModel.formatear_moneda(valores[indice])
+            filas_formateadas.append(tuple(valores))
+        return filas_formateadas
 
     @staticmethod
     def _columnas_historial():
@@ -283,7 +333,10 @@ class ConsultasController:
             "registro",
             "motivo_anulacion",
         )
-        return [tuple(nota[clave] for clave in claves) for nota in notas]
+        filas = [tuple(nota[clave] for clave in claves) for nota in notas]
+        return ConsultasController._formatear_montos(
+            ConsultasController._columnas_historial(), filas
+        )
 
     def consultar_periodo(self):
         self.consulta_actual = "periodo"

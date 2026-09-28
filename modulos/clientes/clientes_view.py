@@ -18,13 +18,11 @@ class ClientesView(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master=master, fg_color=COLOR_FONDO)
 
-        # Título
         self.lbl_titulo = ctk.CTkLabel(
             self, text="Gestión de Clientes", font=FUENTE_TITULO
         )
         self.lbl_titulo.pack(pady=10)
 
-        # Frame de Formulario
         self.frame_form = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_form.pack(pady=10, fill="x", padx=20)
 
@@ -76,7 +74,6 @@ class ClientesView(ctk.CTkFrame):
         )
         self.btn_eliminar.grid(row=0, column=2, sticky="ew", padx=5, pady=5)
 
-        # Tabla de Clientes
         self.tabla_clientes = TablaView(
             self,
             columnas=["RIF/Cédula", "Nombre / Razon Social", "Teléfono", "Dirección"],

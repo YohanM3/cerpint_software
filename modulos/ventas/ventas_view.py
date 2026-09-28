@@ -19,15 +19,11 @@ class VentasView(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master=master, fg_color=COLOR_FONDO)
 
-        # Título
         self.lbl_titulo = ctk.CTkLabel(
             self, text="Nueva Nota de Entrega", font=FUENTE_TITULO
         )
         self.lbl_titulo.pack(pady=10)
 
-        # ---------------------------------------------------------
-        # SECCIÓN 1: Selección / Búsqueda de Cliente
-        # ---------------------------------------------------------
         self.frame_cliente = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_cliente.pack(pady=5, fill="x", padx=20)
 
@@ -46,14 +42,10 @@ class VentasView(ctk.CTkFrame):
         )
         self.lbl_cliente_activo.pack(side="left", padx=15)
 
-        # Frame contenedor para las sugerencias flotantes de clientes
         self.frame_sugerencias = ctk.CTkFrame(
             self, fg_color="#FFFFFF", border_color=COLOR_PRIMARIO, border_width=1
         )
 
-        # ---------------------------------------------------------
-        # SECCIÓN 2: Formulario de Productos
-        # ---------------------------------------------------------
         self.frame_form = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_form.pack(pady=10, fill="x", padx=20)
 
@@ -78,7 +70,6 @@ class VentasView(ctk.CTkFrame):
         self.frame_acciones.pack(fill="x", padx=20, pady=(0, 10))
         self.frame_acciones.grid_columnconfigure(0, weight=1)
 
-        # Botón Agregar
         self.btn_agregar = BotonView(
             self.frame_acciones,
             texto="Agregar Item",
@@ -87,14 +78,10 @@ class VentasView(ctk.CTkFrame):
         )
         self.btn_agregar.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
 
-        # Frame contenedor para las sugerencias flotantes de productos
         self.frame_sugerencias_prod = ctk.CTkFrame(
             self, fg_color="#FFFFFF", border_color=COLOR_PRIMARIO, border_width=1
         )
 
-        # ---------------------------------------------------------
-        # SECCIÓN 3: Tabla del Carrito y Footer
-        # ---------------------------------------------------------
         self.tabla_ventas = TablaView(
             self, columnas=["Código", "Producto", "Cant.", "P. Unitario", "Subtotal"]
         )
@@ -176,7 +163,6 @@ class VentasView(ctk.CTkFrame):
             add="+",
         )
 
-        # Bloqueo inicial
         self.bloquear_articulos()
 
     def mostrar_sugerencias(self, lista_clientes, callback):
@@ -298,7 +284,7 @@ class VentasView(ctk.CTkFrame):
 
     def desbloquear_articulos(self):
         self.txt_codigo.configure(state="normal")
-        self.txt_nombre.configure(state="disabled")  # Nombre y precio autocompletados
+        self.txt_nombre.configure(state="disabled")
         self.txt_precio.configure(state="disabled")
         self.txt_cantidad.configure(state="normal")
         self.btn_agregar.cambiar_estado(activo=True)

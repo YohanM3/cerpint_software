@@ -1,5 +1,7 @@
 from contextlib import closing
 from decimal import Decimal, InvalidOperation
+from servicios.auditoria import registrar_evento
+from servicios.respaldo import crear_respaldo
 
 try:
     from database.conexion import obtener_conexion, transaccion
@@ -16,9 +18,6 @@ except ModuleNotFoundError:
 
 
 class InventarioModel:
-    def __init__(self):
-        pass
-
     def agregar_producto(
         self, codigo: str, nombre: str, precio: float, stock: int
     ) -> bool:
@@ -30,6 +29,7 @@ class InventarioModel:
         if not codigo_fmt:
             raise ValidacionError("El código del producto es obligatorio.")
 
+        crear_respaldo()
         with transaccion() as conn:
             cursor = conn.cursor()
             if self._existe_codigo(cursor, codigo_original, codigo_fmt):
@@ -47,6 +47,7 @@ class InventarioModel:
                     stock_fmt,
                 ),
             )
+            registrar_evento(cursor, "CREAR", "producto", codigo_fmt, nombre_fmt)
         return True
 
     @staticmethod
@@ -207,6 +208,7 @@ class InventarioModel:
         if not cod_orig_fmt or not nuevo_cod_fmt:
             raise ValidacionError("El código del producto es obligatorio.")
 
+        crear_respaldo()
         with transaccion() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -237,14 +239,21 @@ class InventarioModel:
             )
             if cursor.rowcount != 1:
                 raise RegistroNoEncontradoError("El producto ya no existe.")
+            registrar_evento(
+                cursor, "ACTUALIZAR", "producto", nuevo_cod_fmt, nombre_fmt
+            )
         return True
 
     def eliminar_producto(self, codigo: str) -> bool:
         """Elimina un producto por su código."""
         codigo_fmt = (codigo or "").strip().upper()
+        crear_respaldo()
         with transaccion() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "DELETE FROM productos WHERE UPPER(codigo) = ?", (codigo_fmt,)
             )
-            return cursor.rowcount == 1
+            eliminado = cursor.rowcount == 1
+            if eliminado:
+                registrar_evento(cursor, "ELIMINAR", "producto", codigo_fmt)
+            return eliminado

@@ -1,10 +1,10 @@
-# main.py
 import sqlite3
 from tkinter import messagebox
 
 import customtkinter as ctk
 from database.conexion import inicializar_base_de_datos
 from modulos.login.login_controller import LoginController
+from servicios.auditoria import establecer_sesion
 
 from config.estilos import (
     COLOR_FONDO,
@@ -12,7 +12,6 @@ from config.estilos import (
     COLOR_PRIMARIO_HOVER,
 )
 
-# Importación de Módulos (Modelo, Vista, Controlador)
 from modulos.inventario.inventario_model import InventarioModel
 from modulos.inventario.inventario_view import InventarioView
 from modulos.inventario.inventario_controller import InventarioController
@@ -37,19 +36,18 @@ class AplicacionPrincipal(ctk.CTk):
 
     def __init__(self):
         super().__init__()
+        self.usuario_actual = None
+        self.rol_actual = None
 
-        # Configuración de la Ventana Principal
         self.title("Ferretería Cerpint - Sistema de Control de Ventas")
         self.geometry("1024x600")
         self.minsize(900, 500)
         self.after(50, lambda: self.state("zoomed"))
         self.configure(fg_color=COLOR_FONDO)
 
-        # 1. Menú de Navegación Superior
         self.frame_navegacion = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_navegacion.pack(side="top", fill="x", padx=20, pady=10)
 
-        # Botones de la barra superior
         self.btn_nav_inventario = BotonView(
             self.frame_navegacion,
             texto="Inventario",
@@ -98,33 +96,54 @@ class AplicacionPrincipal(ctk.CTk):
         )
         self.lbl_titulo_modulo.pack_forget()
 
-        # 2. Contenedor Dinámico para los Módulos
+        self.lbl_sesion = ctk.CTkLabel(
+            self.frame_navegacion,
+            text="",
+            font=ctk.CTkFont(size=12),
+            text_color=("#475569", "#CBD5E1"),
+        )
+        self.lbl_sesion.pack(side="right", padx=5)
+
         self.contenedor_modulo = ctk.CTkFrame(self, fg_color="transparent")
         self.contenedor_modulo.pack(side="top", fill="both", expand=True)
 
-        # 3. Inicialización de los Módulos MVC
         self._inicializar_modulos()
 
-        # Mostrar módulo inicial por defecto
+        self.mostrar_modulo("ventas", mostrar_titulo=False)
+
+    def configurar_sesion(self, usuario, rol):
+        """Aplica los permisos de la sesión autenticada a la interfaz."""
+        self.usuario_actual = usuario
+        self.rol_actual = rol
+        es_consultor = rol == "consultor"
+        self.lbl_sesion.configure(
+            text=f"{usuario} | {'Consultor' if es_consultor else 'Administrador General'}"
+        )
+        self.consultas_controller.establecer_solo_lectura(es_consultor)
+
+        if es_consultor:
+            self.btn_nav_inventario.pack_forget()
+            self.btn_nav_clientes.pack_forget()
+            self.btn_nav_ventas.pack_forget()
+            self.mostrar_modulo("consultas", mostrar_titulo=False)
+            return
+
         self.mostrar_modulo("ventas", mostrar_titulo=False)
 
     def _inicializar_modulos(self):
         """Instancia los Modelos, Vistas y Controladores de cada módulo."""
-        # --- Módulo Inventario ---
         self.inventario_model = InventarioModel()
         self.inventario_view = InventarioView(self.contenedor_modulo)
         self.inventario_controller = InventarioController(
             self.inventario_model, self.inventario_view
         )
 
-        # --- Módulo Clientes ---
         self.clientes_model = ClientesModel()
         self.clientes_view = ClientesView(self.contenedor_modulo)
         self.clientes_controller = ClientesController(
             self.clientes_model, self.clientes_view
         )
 
-        # --- Módulo Ventas ---
         self.ventas_model = VentasModel()
         self.ventas_view = VentasView(self.contenedor_modulo)
         self.ventas_controller = VentasController(
@@ -134,17 +153,16 @@ class AplicacionPrincipal(ctk.CTk):
             inventario_model=self.inventario_model,
         )
 
-        # --- Módulo Consultas ---
         self.consultas_model = ConsultasModel()
         self.consultas_view = ConsultasView(self.contenedor_modulo)
         self.consultas_controller = ConsultasController(
             self.consultas_model,
             self.consultas_view,
+            clientes_model=self.clientes_model,
         )
 
     def mostrar_modulo(self, nombre_modulo: str, mostrar_titulo: bool = False):
         """Oculta las vistas activas y despliega la vista del módulo solicitado."""
-        # Ocultar todos los frames
         self.inventario_view.pack_forget()
         self.clientes_view.pack_forget()
         self.ventas_view.pack_forget()
@@ -163,7 +181,6 @@ class AplicacionPrincipal(ctk.CTk):
         else:
             self.lbl_titulo_modulo.pack_forget()
 
-        # Mostrar el seleccionado
         if nombre_modulo == "inventario":
             self.inventario_view.pack(fill="both", expand=True)
         elif nombre_modulo == "clientes":
@@ -195,20 +212,19 @@ def iniciar_aplicacion():
         )
         raise SystemExit(1) from error
 
-    login = ctk.CTk()
-    usuario_autenticado = {"usuario": None}
+    app = AplicacionPrincipal()
+    app.withdraw()
+    login = ctk.CTkToplevel(app)
 
-    def abrir_sistema(usuario):
-        usuario_autenticado["usuario"] = usuario
+    def abrir_sistema(usuario, rol):
+        establecer_sesion(usuario, rol)
+        app.configurar_sesion(usuario, rol)
         login.destroy()
+        app.deiconify()
+        app.lift()
 
     LoginController(login, abrir_sistema)
-    login.mainloop()
-
-    if usuario_autenticado["usuario"] is None:
-        return
-
-    app = AplicacionPrincipal()
+    login.protocol("WM_DELETE_WINDOW", app.destroy)
     app.mainloop()
 
 

@@ -1,6 +1,3 @@
-# componentes/boton/boton_model.py
-
-
 class BotonModel:
     """Guarda únicamente los datos y el estado del botón."""
 

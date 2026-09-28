@@ -1,11 +1,11 @@
-# modulos/ventas/ventas_controller.py
-
 import os
+import sqlite3
 import subprocess
 import sys
-from decimal import Decimal
-from tkinter import filedialog, messagebox
+from decimal import Decimal, InvalidOperation
+from tkinter import TclError, filedialog, messagebox
 
+from database.errores import InventarioInsuficienteError, ValidacionError
 from modulos.ventas.ventas_model import VentasModel
 from servicios.pdf_service import PDFService
 
@@ -227,7 +227,12 @@ class VentasController:
             self.vista.limpiar_formulario_articulo()
             self._actualizar_tabla_venta()
             self.vista.txt_codigo.focus_set()
-        except Exception as error:
+        except (
+            ValidacionError,
+            InventarioInsuficienteError,
+            ValueError,
+            sqlite3.Error,
+        ) as error:
             messagebox.showwarning("Atención", str(error))
 
     def _actualizar_tabla_venta(self):
@@ -344,7 +349,7 @@ class VentasController:
             if hasattr(self.vista, "winfo_toplevel"):
                 try:
                     parent_widget = self.vista.winfo_toplevel()
-                except Exception:
+                except (AttributeError, TclError):
                     parent_widget = None
 
             resultado = self.procesar_y_generar_pdf(
@@ -357,7 +362,13 @@ class VentasController:
             )
             self.limpiar_nuevo_pedido()
             return resultado
-        except Exception as error:
+        except (
+            ValidacionError,
+            InventarioInsuficienteError,
+            ValueError,
+            sqlite3.Error,
+            TclError,
+        ) as error:
             messagebox.showerror("Error en Venta", str(error))
             return None
 
@@ -455,8 +466,18 @@ class VentasController:
                 parent=parent_widget,
             )
             return True
-        except Exception as e:
-            messagebox.showerror("Error en Venta", str(e), parent=parent_widget)
+        except (
+            ValidacionError,
+            InventarioInsuficienteError,
+            InvalidOperation,
+            OSError,
+            sqlite3.Error,
+            subprocess.SubprocessError,
+            TclError,
+            TypeError,
+            ValueError,
+        ) as error:
+            messagebox.showerror("Error en Venta", str(error), parent=parent_widget)
             return False
 
     @staticmethod

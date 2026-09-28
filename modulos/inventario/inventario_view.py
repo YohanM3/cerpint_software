@@ -1,4 +1,3 @@
-# modulos/inventario/inventario_view.py
 import customtkinter as ctk
 from componentes.boton.boton_view import BotonView
 from componentes.entrada.entrada_view import EntradaView
@@ -19,13 +18,11 @@ class InventarioView(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master=master, fg_color=COLOR_FONDO)
 
-        # Título
         self.lbl_titulo = ctk.CTkLabel(
             self, text="Gestión de Inventario", font=FUENTE_TITULO
         )
         self.lbl_titulo.pack(pady=10)
 
-        # Frame de Formulario (Entradas)
         self.frame_form = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_form.pack(pady=10, fill="x", padx=20)
 
@@ -46,7 +43,6 @@ class InventarioView(ctk.CTkFrame):
         self.txt_stock = EntradaView(self.frame_form, placeholder="Stock Inicial")
         self.txt_stock.grid(row=0, column=3, sticky="ew", padx=5, pady=5)
 
-        # Botones de acción debajo de los campos
         self.frame_acciones = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_acciones.pack(fill="x", padx=20, pady=(0, 10))
 
@@ -79,7 +75,6 @@ class InventarioView(ctk.CTkFrame):
         )
         self.btn_eliminar.grid(row=0, column=2, sticky="ew", padx=5, pady=5)
 
-        # Tabla de Productos
         self.tabla_inventario = TablaView(
             self, columnas=["Código", "Producto", "Precio", "Stock"]
         )

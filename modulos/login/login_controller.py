@@ -1,3 +1,6 @@
+import sqlite3
+from contextlib import closing
+
 from database.conexion import obtener_conexion
 from modulos.login.login_view import LoginView
 from servicios.seguridad import es_hash_clave, generar_hash_clave, verificar_clave
@@ -20,9 +23,9 @@ class LoginController:
             return
 
         try:
-            with obtener_conexion() as conexion:
+            with closing(obtener_conexion()) as conexion:
                 usuario_valido = conexion.execute(
-                    "SELECT usuario, clave FROM usuarios WHERE usuario = ?",
+                    "SELECT usuario, clave, rol FROM usuarios WHERE usuario = ?",
                     (usuario,),
                 ).fetchone()
                 if usuario_valido and verificar_clave(password, usuario_valido[1]):
@@ -33,13 +36,13 @@ class LoginController:
                         )
                 else:
                     usuario_valido = None
-        except Exception:
+        except sqlite3.Error:
             self.view.mostrar_error("No se pudo validar el acceso.")
             return
 
         if usuario_valido:
             self.view.mostrar_error("")
-            self.al_autenticar_exitoso(usuario_valido[0])
+            self.al_autenticar_exitoso(usuario_valido[0], usuario_valido[2])
             return
 
         self.view.mostrar_error("Usuario o contraseña incorrectos.")

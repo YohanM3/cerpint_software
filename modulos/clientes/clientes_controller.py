@@ -22,17 +22,14 @@ class ClientesController:
             self.tabla_model, self.vista.tabla_clientes
         )
 
-        # Conectar botones
         self.vista.btn_guardar.configure(command=self.registrar_cliente)
         self.vista.btn_actualizar.configure(command=self.modificar_cliente)
         self.vista.btn_eliminar.configure(command=self.eliminar_cliente)
 
-        # Evento de clic en la tabla
         self.vista.tabla_clientes.tabla.bind(
             "<ButtonRelease-1>", self.cargar_cliente_seleccionado
         )
 
-        # Cargar datos iniciales
         self.actualizar_tabla()
 
     def actualizar_tabla(self):

@@ -10,7 +10,7 @@ class TablaController:
         self.modelo.actualizar_datos(nuevas_filas)
         self.vista.Insertar_filas(nuevas_filas)
 
-    def obtener_seleccion(self):  # <--- Se agregó self aquí
+    def obtener_seleccion(self):
         """Retorna la fila que el usuario seleccionó con el clic."""
         item_seleccionado = self.vista.tabla.selection()
         if item_seleccionado:

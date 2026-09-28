@@ -13,7 +13,7 @@ def obtener_conexion():
     try:
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA busy_timeout = 5000;")
-    except Exception:
+    except sqlite3.Error:
         conn.close()
         raise
     return conn
@@ -24,8 +24,14 @@ def transaccion():
     """Confirma al salir, revierte ante errores y siempre cierra la conexión."""
     conn = obtener_conexion()
     try:
-        with conn:
-            yield conn
+        yield conn
+        conn.commit()
+    except BaseException:
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+        raise
     finally:
         conn.close()
 
@@ -98,7 +104,20 @@ def inicializar_base_de_datos():
             usuario TEXT UNIQUE NOT NULL,
             clave TEXT NOT NULL,
             nombre TEXT NOT NULL,
-            rol TEXT NOT NULL DEFAULT 'vendedor'
+            rol TEXT NOT NULL DEFAULT 'consultor'
+                CHECK (rol IN ('administrador', 'consultor'))
+        )
+    """)
+            cursor.execute("""
+        CREATE TABLE IF NOT EXISTS auditoria (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            usuario TEXT NOT NULL,
+            rol TEXT NOT NULL,
+            accion TEXT NOT NULL,
+            entidad TEXT NOT NULL,
+            referencia TEXT NOT NULL,
+            detalle TEXT NOT NULL DEFAULT ''
         )
     """)
             clave_admin = generar_hash_clave("1234")
@@ -108,14 +127,31 @@ def inicializar_base_de_datos():
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(usuario) DO NOTHING
                 """,
-                ("admin", clave_admin, "Administrador", "admin"),
+                ("admin", clave_admin, "Administrador General", "administrador"),
             )
             cursor.execute(
                 """
-                UPDATE usuarios SET clave = ?
-                WHERE usuario = ? AND clave IN (?, ?)
+                INSERT INTO usuarios (usuario, clave, nombre, rol)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(usuario) DO NOTHING
                 """,
-                (clave_admin, "admin", "1234", "admin123"),
+                ("consultor", generar_hash_clave("1234"), "Consultor", "consultor"),
+            )
+            cursor.execute(
+                """
+                UPDATE usuarios SET clave = ?, nombre = ?, rol = ?
+                WHERE usuario = ? AND (clave IN (?, ?) OR rol IN (?, ?))
+                """,
+                (
+                    clave_admin,
+                    "Administrador General",
+                    "administrador",
+                    "admin",
+                    "1234",
+                    "admin123",
+                    "admin",
+                    "vendedor",
+                ),
             )
 
             columnas_monetarias = (
@@ -219,6 +255,10 @@ def inicializar_base_de_datos():
                 "CREATE INDEX IF NOT EXISTS idx_pagos_venta_fecha "
                 "ON pagos_cuentas_por_cobrar(venta_id, fecha)"
             )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_auditoria_fecha "
+                "ON auditoria(fecha DESC)"
+            )
 
             cursor.execute(
                 "UPDATE productos SET precio_centavos = CAST(ROUND(precio * 100) AS INTEGER) WHERE precio_centavos IS NULL"
@@ -296,6 +336,27 @@ def inicializar_base_de_datos():
                     OR NEW.precio_unitario_centavos != CAST(ROUND(NEW.precio_unitario * 100) AS INTEGER)
                     OR NEW.subtotal_centavos != CAST(ROUND(NEW.subtotal * 100) AS INTEGER)
                 BEGIN SELECT RAISE(ABORT, 'detalle de venta inválido'); END;
+
+                CREATE TRIGGER IF NOT EXISTS validar_detalle_total_insert
+                BEFORE INSERT ON detalles_venta
+                WHEN NEW.subtotal_centavos != NEW.cantidad * NEW.precio_unitario_centavos
+                BEGIN SELECT RAISE(ABORT, 'subtotal de detalle inválido'); END;
+
+                CREATE TRIGGER IF NOT EXISTS validar_detalle_total_update
+                BEFORE UPDATE OF cantidad, precio_unitario_centavos, subtotal_centavos
+                    ON detalles_venta
+                WHEN NEW.subtotal_centavos != NEW.cantidad * NEW.precio_unitario_centavos
+                BEGIN SELECT RAISE(ABORT, 'subtotal de detalle inválido'); END;
+
+                CREATE TRIGGER IF NOT EXISTS validar_usuario_rol_insert
+                BEFORE INSERT ON usuarios
+                WHEN NEW.rol NOT IN ('administrador', 'consultor')
+                BEGIN SELECT RAISE(ABORT, 'rol de usuario inválido'); END;
+
+                CREATE TRIGGER IF NOT EXISTS validar_usuario_rol_update
+                BEFORE UPDATE OF rol ON usuarios
+                WHEN NEW.rol NOT IN ('administrador', 'consultor')
+                BEGIN SELECT RAISE(ABORT, 'rol de usuario inválido'); END;
             """)
 
 

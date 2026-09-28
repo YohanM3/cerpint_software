@@ -1,4 +1,6 @@
 from contextlib import closing
+from servicios.auditoria import registrar_evento
+from servicios.respaldo import crear_respaldo
 
 try:
     from database.conexion import obtener_conexion, transaccion
@@ -17,9 +19,6 @@ except ModuleNotFoundError:
 class ClientesModel:
     """Modelo para gestionar clientes."""
 
-    def __init__(self):
-        pass
-
     def agregar_cliente(
         self, documento: str, nombre: str, telefono: str = "", direccion: str = ""
     ) -> bool:
@@ -29,6 +28,7 @@ class ClientesModel:
         if not doc_fmt or not nombre_fmt:
             raise ValidacionError("Documento y nombre son obligatorios.")
 
+        crear_respaldo()
         with transaccion() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -47,6 +47,7 @@ class ClientesModel:
                     (direccion or "").strip(),
                 ),
             )
+            registrar_evento(cursor, "CREAR", "cliente", doc_fmt, nombre_fmt)
         return True
 
     def obtener_todos(self):
@@ -94,6 +95,7 @@ class ClientesModel:
         if not doc_orig_fmt or not nuevo_doc_fmt or not nombre_fmt:
             raise ValidacionError("Documento y nombre son obligatorios.")
 
+        crear_respaldo()
         with transaccion() as conn:
             cursor = conn.cursor()
             if doc_orig_fmt != nuevo_doc_fmt:
@@ -120,14 +122,19 @@ class ClientesModel:
             )
             if cursor.rowcount != 1:
                 raise RegistroNoEncontradoError("El cliente ya no existe.")
+            registrar_evento(cursor, "ACTUALIZAR", "cliente", nuevo_doc_fmt, nombre_fmt)
         return True
 
     def eliminar_cliente(self, documento: str) -> bool:
         """Elimina un cliente por documento."""
         doc_fmt = (documento or "").strip().upper()
+        crear_respaldo()
         with transaccion() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "DELETE FROM clientes WHERE UPPER(documento) = ?", (doc_fmt,)
             )
-            return cursor.rowcount == 1
+            eliminado = cursor.rowcount == 1
+            if eliminado:
+                registrar_evento(cursor, "ELIMINAR", "cliente", doc_fmt)
+            return eliminado

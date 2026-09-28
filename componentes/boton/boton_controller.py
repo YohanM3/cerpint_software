@@ -1,6 +1,3 @@
-# componentes/boton/boton_controller.py
-
-
 class BotonController:
     """Conecta el Modelo y la Vista del botón."""
 
@@ -9,7 +6,6 @@ class BotonController:
         self.vista = vista
         self.funcion_accion = funcion_accion
 
-        # Enlaza el clic visual con el procesador del controlador
         self.vista.configure(command=self.procesar_clic)
 
     def procesar_clic(self):
@@ -19,7 +15,7 @@ class BotonController:
 
         self.modelo.registrar_clic()
 
-        if self.funcion_accion:
+        if callable(self.funcion_accion):
             self.funcion_accion()
 
     def desactivar(self):

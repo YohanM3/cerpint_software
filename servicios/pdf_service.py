@@ -1,5 +1,3 @@
-# servicios/pdf_service.py
-
 import os
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import (
@@ -60,7 +58,6 @@ class PDFService:
 
         elements = []
 
-        # Formato del número de serie a 5 dígitos
         numero_serie = f"{venta_id:05d}"
         datos_credito = ""
         if cliente_data.get("fecha_vencimiento"):
@@ -69,7 +66,6 @@ class PDFService:
                 f"<br/>Vence: {cliente_data['fecha_vencimiento']}"
             )
 
-        # Encabezado
         header_data = [
             [
                 Paragraph(
@@ -87,7 +83,6 @@ class PDFService:
         elements.append(t_header)
         elements.append(Spacer(1, 10))
 
-        # Datos del Cliente
         client_data = [
             [
                 Paragraph(f"<b>Cliente:</b> {cliente_data['nombre']}", style_normal),
@@ -113,7 +108,6 @@ class PDFService:
         elements.append(t_client)
         elements.append(Spacer(1, 15))
 
-        # Tabla de Productos
         table_content = [
             [
                 Paragraph("Código", style_header_table),
@@ -149,7 +143,6 @@ class PDFService:
         elements.append(t_products)
         elements.append(Spacer(1, 10))
 
-        # Total
         total_data = [
             [
                 Paragraph("<b>TOTAL A PAGAR ($):</b>", style_right),
@@ -168,7 +161,6 @@ class PDFService:
         elements.append(t_total)
         elements.append(Spacer(1, 30))
 
-        # Firmas
         firmas_data = [
             [
                 Paragraph(
