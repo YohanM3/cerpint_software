@@ -2,6 +2,8 @@ import sqlite3
 from contextlib import closing, contextmanager
 from pathlib import Path
 
+from servicios.seguridad import generar_hash_clave
+
 DB_NAME = Path(__file__).resolve().parent.parent / "ferreteria.db"
 
 
@@ -89,6 +91,32 @@ def inicializar_base_de_datos():
             FOREIGN KEY (producto_codigo) REFERENCES productos(codigo)
         )
     """)
+
+            cursor.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario TEXT UNIQUE NOT NULL,
+            clave TEXT NOT NULL,
+            nombre TEXT NOT NULL,
+            rol TEXT NOT NULL DEFAULT 'vendedor'
+        )
+    """)
+            clave_admin = generar_hash_clave("1234")
+            cursor.execute(
+                """
+                INSERT INTO usuarios (usuario, clave, nombre, rol)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(usuario) DO NOTHING
+                """,
+                ("admin", clave_admin, "Administrador", "admin"),
+            )
+            cursor.execute(
+                """
+                UPDATE usuarios SET clave = ?
+                WHERE usuario = ? AND clave IN (?, ?)
+                """,
+                (clave_admin, "admin", "1234", "admin123"),
+            )
 
             columnas_monetarias = (
                 (

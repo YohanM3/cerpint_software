@@ -4,6 +4,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 from database.conexion import inicializar_base_de_datos
+from modulos.login.login_controller import LoginController
 
 from config.estilos import (
     COLOR_FONDO,
@@ -182,7 +183,7 @@ class AplicacionPrincipal(ctk.CTk):
             self.consultas_controller.mostrar_notas_pendientes()
 
 
-if __name__ == "__main__":
+def iniciar_aplicacion():
     try:
         inicializar_base_de_datos()
     except (OSError, sqlite3.Error) as error:
@@ -192,5 +193,22 @@ if __name__ == "__main__":
         )
         raise SystemExit(1) from error
 
+    login = ctk.CTk()
+    usuario_autenticado = {"usuario": None}
+
+    def abrir_sistema(usuario):
+        usuario_autenticado["usuario"] = usuario
+        login.destroy()
+
+    LoginController(login, abrir_sistema)
+    login.mainloop()
+
+    if usuario_autenticado["usuario"] is None:
+        return
+
     app = AplicacionPrincipal()
     app.mainloop()
+
+
+if __name__ == "__main__":
+    iniciar_aplicacion()
