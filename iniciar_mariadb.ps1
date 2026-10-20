@@ -9,7 +9,7 @@ try {
     $env:FERRETERIA_DB_NAME = "ferreteria_cerpint"
     $env:FERRETERIA_DB_USER = "ferreteria_app"
     $env:FERRETERIA_DB_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
-    & "$PSScriptRoot\.venv\Scripts\python.exe" "$PSScriptRoot\main.py"
+    & "$PSScriptRoot\dist\Cerpint\Cerpint.exe"
 }
 finally {
     Remove-Item Env:FERRETERIA_DB_PASSWORD -ErrorAction SilentlyContinue
