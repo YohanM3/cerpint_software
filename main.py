@@ -1,10 +1,15 @@
-import sqlite3
-from tkinter import messagebox
+from tkinter import TclError, messagebox
 
 import customtkinter as ctk
 from database.conexion import inicializar_base_de_datos
+from database.errores import DatabaseError
 from modulos.login.login_controller import LoginController
 from servicios.auditoria import establecer_sesion
+from servicios.respaldo import crear_respaldo
+from servicios.permisos import ROL_ADMINISTRADOR, obtener_permisos, rol_existe
+from modulos.administracion.administracion_controller import (
+    AdministracionController,
+)
 
 from config.estilos import (
     COLOR_FONDO,
@@ -38,13 +43,14 @@ class AplicacionPrincipal(ctk.CTk):
         super().__init__()
         self.usuario_actual = None
         self.rol_actual = None
+        self._ventana_administracion = None
 
         self.title("Ferretería Cerpint - Sistema de Control de Ventas")
         self.geometry("1024x600")
         self.minsize(900, 500)
-        self.after(50, lambda: self.state("zoomed"))
+        self.after(50, self._maximizar_ventana)
         self.configure(fg_color=COLOR_FONDO)
-
+        self.protocol("WM_DELETE_WINDOW", self.cerrar_aplicacion)
         self.frame_navegacion = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_navegacion.pack(side="top", fill="x", padx=20, pady=10)
 
@@ -88,6 +94,14 @@ class AplicacionPrincipal(ctk.CTk):
         )
         self.btn_nav_consultas.pack(side="left", padx=(5, 0))
 
+        self.btn_nav_administracion = BotonView(
+            self.frame_navegacion,
+            texto="Roles y permisos",
+            fg_color=COLOR_PRIMARIO,
+            hover_color=COLOR_PRIMARIO_HOVER,
+            width=150,
+            command=self.abrir_administracion,
+        )
         self.lbl_titulo_modulo = ctk.CTkLabel(
             self.frame_navegacion,
             text="",
@@ -111,24 +125,81 @@ class AplicacionPrincipal(ctk.CTk):
 
         self.mostrar_modulo("ventas", mostrar_titulo=False)
 
+    def cerrar_aplicacion(self):
+        """Respalda al cerrar si hubo sesión; un fallo no bloquea el cierre."""
+        if self.usuario_actual is not None:
+            try:
+                crear_respaldo()
+            except Exception as error:
+                print(f"No se pudo crear el respaldo al cerrar: {error}")
+        self.destroy()
+
     def configurar_sesion(self, usuario, rol):
-        """Aplica los permisos de la sesión autenticada a la interfaz."""
+        """Aplica los permisos del rol de la sesión autenticada a la interfaz."""
+        if not rol_existe(rol):
+            raise ValueError("Rol de usuario no autorizado.")
+        permisos = obtener_permisos(rol)
         self.usuario_actual = usuario
         self.rol_actual = rol
-        es_consultor = rol == "consultor"
+        es_admin = rol == ROL_ADMINISTRADOR
         self.lbl_sesion.configure(
-            text=f"{usuario} | {'Consultor' if es_consultor else 'Administrador General'}"
+            text=f"{usuario} | {'Administrador General' if es_admin else rol}"
         )
-        self.consultas_controller.establecer_solo_lectura(es_consultor)
+        self.consultas_controller.establecer_solo_lectura(
+            "consultas.modificar" not in permisos
+        )
+        self.inventario_controller.establecer_solo_lectura(
+            "inventario.modificar" not in permisos
+        )
+        self.clientes_controller.establecer_solo_lectura(
+            "clientes.modificar" not in permisos
+        )
 
-        if es_consultor:
-            self.btn_nav_inventario.pack_forget()
-            self.btn_nav_clientes.pack_forget()
-            self.btn_nav_ventas.pack_forget()
-            self.mostrar_modulo("consultas", mostrar_titulo=False)
+        accesos = {
+            "ventas": ("ventas.realizar", self.btn_nav_ventas),
+            "inventario": ("inventario.ver", self.btn_nav_inventario),
+            "clientes": ("clientes.ver", self.btn_nav_clientes),
+            "consultas": ("consultas.ver", self.btn_nav_consultas),
+        }
+        primero = None
+        for modulo, (permiso, boton) in accesos.items():
+            if permiso in permisos:
+                primero = primero or modulo
+            else:
+                boton.pack_forget()
+
+        if es_admin:
+            self.btn_nav_administracion.pack(side="left", padx=(5, 0))
+        if primero:
+            self.mostrar_modulo(primero, mostrar_titulo=False)
+        else:
+            self.mostrar_modulo("", mostrar_titulo=False)
+            messagebox.showwarning(
+                "Sin permisos",
+                "Tu rol no tiene permisos asignados. Contacta al administrador.",
+            )
+
+    def abrir_administracion(self):
+        """Abre la ventana de roles y permisos (solo administrador)."""
+        if self.rol_actual != ROL_ADMINISTRADOR:
             return
+        if self._ventana_administracion is not None:
+            try:
+                if self._ventana_administracion.view.winfo_exists():
+                    self._ventana_administracion.view.lift()
+                    return
+            except TclError:
+                pass
+        self._ventana_administracion = AdministracionController(
+            self, self.usuario_actual
+        )
 
-        self.mostrar_modulo("ventas", mostrar_titulo=False)
+    def _maximizar_ventana(self):
+        """Maximiza cuando el administrador de ventanas         GRANT TRIGGER ON `ferreteria_cerpint`.* TO 'ferreteria_app'@'localhost';lo admite."""
+        try:
+            self.state("zoomed")
+        except TclError:
+            pass
 
     def _inicializar_modulos(self):
         """Instancia los Modelos, Vistas y Controladores de cada módulo."""
@@ -205,10 +276,12 @@ def iniciar_aplicacion():
 
     try:
         inicializar_base_de_datos()
-    except (OSError, sqlite3.Error) as error:
+    except (OSError, DatabaseError, RuntimeError) as error:
         messagebox.showerror(
             "No se pudo abrir la base de datos",
-            f"Verifica que ferreteria.db sea accesible y esté íntegra.\n\n{error}",
+            "Verifica que MySQL/MariaDB esté disponible, que las variables "
+            "FERRETERIA_DB_USER y FERRETERIA_DB_PASSWORD sean correctas, y que "
+            f"el esquema de la base esté creado.\n\n{error}",
         )
         raise SystemExit(1) from error
 
@@ -217,7 +290,7 @@ def iniciar_aplicacion():
     login = ctk.CTkToplevel(app)
 
     def abrir_sistema(usuario, rol):
-        establecer_sesion(usuario, rol)
+        establecer_sesion(usuario, rol, obtener_permisos(rol))
         app.configurar_sesion(usuario, rol)
         login.destroy()
         app.deiconify()

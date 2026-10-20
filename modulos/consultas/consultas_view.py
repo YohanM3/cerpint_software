@@ -28,7 +28,7 @@ class ConsultasView(ctk.CTkFrame):
 
         self.frame_filtros = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_filtros.pack(fill="x", padx=20, pady=(0, 10))
-        self.frame_filtros.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        self.frame_filtros.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
 
         ctk.CTkLabel(self.frame_filtros, text="Fecha desde").grid(
             row=0, column=0, sticky="w", padx=5
@@ -41,6 +41,12 @@ class ConsultasView(ctk.CTkFrame):
         )
         ctk.CTkLabel(self.frame_filtros, text="Ventas recientes (días)").grid(
             row=0, column=3, sticky="w", padx=5
+        )
+        ctk.CTkLabel(self.frame_filtros, text="Proveedor").grid(
+            row=0, column=4, sticky="w", padx=5
+        )
+        ctk.CTkLabel(self.frame_filtros, text="Marca").grid(
+            row=0, column=5, sticky="w", padx=5
         )
 
         self.txt_fecha_inicio = EntradaView(
@@ -62,6 +68,14 @@ class ConsultasView(ctk.CTkFrame):
         )
         self.txt_dias_analisis.insert(0, "30")
         self.txt_dias_analisis.grid(row=1, column=3, sticky="w", padx=5, pady=5)
+        self.txt_proveedor = EntradaView(
+            self.frame_filtros, placeholder="Proveedor", width=160
+        )
+        self.txt_proveedor.grid(row=1, column=4, sticky="ew", padx=5, pady=5)
+        self.txt_marca = EntradaView(
+            self.frame_filtros, placeholder="Marca", width=160
+        )
+        self.txt_marca.grid(row=1, column=5, sticky="ew", padx=5, pady=5)
 
         self.frame_sugerencias_clientes = ctk.CTkFrame(
             self.frame_filtros,
@@ -103,14 +117,48 @@ class ConsultasView(ctk.CTkFrame):
         )
         self.btn_cliente.grid(row=0, column=2, sticky="ew", padx=5, pady=5)
 
-        self.btn_reposicion = BotonView(
+        self.btn_bajo_stock = BotonView(
             self.frame_acciones,
-            texto="Urgencias de compra",
+            texto="Bajo stock mínimo",
             fg_color=COLOR_PRIMARIO,
             hover_color=COLOR_PRIMARIO_HOVER,
             width=190,
         )
-        self.btn_reposicion.grid(row=0, column=3, sticky="ew", padx=5, pady=5)
+        self.btn_bajo_stock.grid(row=0, column=3, sticky="ew", padx=5, pady=5)
+
+        self.btn_sin_movimiento = BotonView(
+            self.frame_acciones,
+            texto="Sin movimiento",
+            fg_color=COLOR_PRIMARIO,
+            hover_color=COLOR_PRIMARIO_HOVER,
+            width=170,
+        )
+        self.btn_sin_movimiento.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+        self.btn_proveedor = BotonView(
+            self.frame_acciones,
+            texto="Por proveedor",
+            fg_color=COLOR_PRIMARIO,
+            hover_color=COLOR_PRIMARIO_HOVER,
+            width=170,
+        )
+        self.btn_proveedor.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+        self.btn_marca = BotonView(
+            self.frame_acciones,
+            texto="Por marca",
+            fg_color=COLOR_PRIMARIO,
+            hover_color=COLOR_PRIMARIO_HOVER,
+            width=170,
+        )
+        self.btn_marca.grid(row=1, column=2, sticky="ew", padx=5, pady=5)
+
+        self.btn_imprimir = BotonView(
+            self.frame_acciones,
+            texto="Imprimir / PDF",
+            fg_color=COLOR_PRIMARIO,
+            hover_color=COLOR_PRIMARIO_HOVER,
+            width=170,
+        )
+        self.btn_imprimir.grid(row=1, column=3, sticky="e", padx=5, pady=5)
 
         self.frame_acciones_nota = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_acciones_nota.pack(fill="x", padx=25, pady=(0, 10))
@@ -303,6 +351,10 @@ class ConsultasView(ctk.CTkFrame):
             "Promedio/día": 90,
             "Cobertura días": 90,
             "Prioridad": 105,
+            "Marca": 110,
+            "Proveedor": 130,
+            "Estado": 80,
+            "Última venta": 115,
         }
         for col in columnas:
             self.tabla_reportes.tabla.column(
@@ -315,7 +367,7 @@ class ConsultasView(ctk.CTkFrame):
             self.tabla_reportes.tabla.insert("", "end", values=fila)
         if filas:
             self.lbl_estado_resultado.configure(
-                text=f"{len(filas)} nota(s) encontrada(s)."
+                text=f"{len(filas)} resultado(s) encontrado(s)."
             )
         else:
             self.lbl_estado_resultado.configure(

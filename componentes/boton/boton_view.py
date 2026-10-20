@@ -49,6 +49,9 @@ class BotonView(ctk.CTkButton):
 
     def configure(self, **kwargs):
         controlador = getattr(self, "controlador", None)
+        modelo = getattr(self, "modelo", None)
+        if "state" in kwargs and modelo is not None:
+            modelo.habilitado = kwargs["state"] != "disabled"
         if "command" in kwargs:
             accion = kwargs["command"]
             self._accion_pendiente = accion

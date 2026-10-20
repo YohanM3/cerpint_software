@@ -1,6 +1,6 @@
 # Ferretería Cerpint
 
-Sistema de escritorio para la gestión de una ferretería, desarrollado con Python, CustomTkinter y SQLite.
+Sistema de escritorio para la gestión de una ferretería, desarrollado con Python, CustomTkinter y MySQL/MariaDB.
 
 ## Funcionalidades
 
@@ -18,21 +18,45 @@ El proyecto sigue una organización MVC por módulo:
 
 - `modulos/`: lógica de clientes, inventario, ventas y consultas.
 - `componentes/`: controles reutilizables de interfaz.
-- `database/`: conexión, esquema SQLite y reglas de integridad.
+- `database/`: conexión MySQL/MariaDB y reglas de integridad.
 - `servicios/`: servicios transversales, como PDF y seguridad.
 - `tests/`: pruebas automatizadas.
 
-Todas las operaciones de negocio usan el mismo esquema SQLite: `clientes`, `productos`, `ventas`, `detalles_venta`, `usuarios` y `auditoria`.
+Todas las operaciones de negocio usan MySQL/MariaDB. La conexión y las
+reglas de integridad se mantienen separadas de los modelos de negocio.
 
 ## Requisitos
 
 - Python 3.12 o superior.
 - Paquete `customtkinter`.
+- Paquete `reportlab` para generar comprobantes y reportes PDF.
+- Paquete `mysql-connector-python` al usar MySQL/MariaDB.
+
+Instala las dependencias en el entorno virtual:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+## Base de datos MySQL/MariaDB
+
+La instalación local usa MariaDB de Laragon en el puerto `3307` y la base
+`ferreteria_cerpint`. La aplicación usa exclusivamente MySQL/MariaDB.
+
+Antes de iniciar, asegúrate de que la base ya tenga el esquema requerido y
+revisa el resultado en phpMyAdmin. Inicia la aplicación con:
+
+```powershell
+.\iniciar_mariadb.ps1
+```
+
+`ferreteria_app` tiene privilegios de aplicación (`SELECT`, `INSERT`, `UPDATE`
+y `DELETE`) sobre esa base.
 
 ## Ejecución
 
 ```powershell
-python main.py
+.\.venv\Scripts\python.exe main.py
 ```
 
 Credenciales de demostración:
@@ -45,11 +69,15 @@ Usuario: consultor
 Clave: 1234
 ```
 
+Estas credenciales son exclusivas para demostración. Antes de usar el sistema con datos reales, cambia las contraseñas predeterminadas.
+
 La contraseña se almacena mediante PBKDF2-HMAC-SHA256. Las instalaciones que aún tengan la clave inicial en texto plano se actualizan automáticamente al iniciar sesión.
 
 `admin` tiene el rol Administrador General y puede operar todos los módulos. `consultor` sólo puede acceder a Consultas y Reportes; no puede modificar notas ni gestionar clientes, productos o ventas.
 
-Antes de cada operación crítica se genera una copia de `ferreteria.db` en `respaldos/`. La tabla `auditoria` conserva el usuario, rol, acción y referencia de cada cambio relevante.
+Antes de cada operación crítica se genera un respaldo SQL de MySQL/MariaDB en
+`respaldos/`. La tabla `auditoria` conserva el usuario, rol, acción y referencia
+de cada cambio relevante.
 
 ## Pruebas
 

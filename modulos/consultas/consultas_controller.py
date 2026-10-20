@@ -1,8 +1,12 @@
-import sqlite3
-from tkinter import messagebox, simpledialog
+import os
+import sys
+import subprocess
+from tkinter import filedialog, messagebox, simpledialog
 
+from database.errores import DatabaseError
 from modulos.clientes.clientes_model import ClientesModel
 from modulos.consultas.consultas_model import ConsultasModel
+from servicios.pdf_service import PDFService
 
 
 class ConsultasController:
@@ -21,7 +25,19 @@ class ConsultasController:
         self.vista.btn_pendientes.configure(command=self.mostrar_notas_pendientes)
         self.vista.btn_periodo.configure(command=self.consultar_periodo)
         self.vista.btn_cliente.configure(command=self.consultar_notas_cliente)
-        self.vista.btn_reposicion.configure(command=self.consultar_reposicion)
+        boton_bajo_stock = getattr(self.vista, "btn_bajo_stock", None)
+        if boton_bajo_stock is None:
+            boton_bajo_stock = self.vista.btn_reposicion
+        boton_bajo_stock.configure(command=self.consultar_bajo_stock)
+        for atributo, consulta in (
+            ("btn_sin_movimiento", self.consultar_sin_movimiento),
+            ("btn_proveedor", self.consultar_por_proveedor),
+            ("btn_marca", self.consultar_por_marca),
+        ):
+            boton = getattr(self.vista, atributo, None)
+            if boton is not None:
+                boton.configure(command=consulta)
+        self.vista.btn_imprimir.configure(command=self.imprimir_resultado_actual)
         self.vista.btn_cambiar_pago.configure(
             command=self.cambiar_pago_nota_seleccionada
         )
@@ -44,8 +60,15 @@ class ConsultasController:
             "<Return>", lambda _event: self.consultar_periodo()
         )
         self.vista.txt_dias_analisis.bind(
-            "<Return>", lambda _event: self.consultar_reposicion()
+            "<Return>", lambda _event: self.consultar_sin_movimiento()
         )
+        for atributo, consulta in (
+            ("txt_proveedor", self.consultar_por_proveedor),
+            ("txt_marca", self.consultar_por_marca),
+        ):
+            entrada = getattr(self.vista, atributo, None)
+            if entrada is not None:
+                entrada.bind("<Return>", lambda _event, accion=consulta: accion())
         self.establecer_solo_lectura(solo_lectura)
         self.consultar_notas_pendientes()
 
@@ -80,7 +103,11 @@ class ConsultasController:
             self.sugerencias_cliente = []
             self.vista.ocultar_sugerencias_clientes()
             return
-        self.sugerencias_cliente = self.clientes_model.buscar_sugerencias(texto, 6)
+        try:
+            self.sugerencias_cliente = self.clientes_model.buscar_sugerencias(texto, 6)
+        except DatabaseError as error:
+            messagebox.showerror("Error de base de datos", str(error))
+            return
         self.vista.mostrar_sugerencias_clientes(
             self.sugerencias_cliente, self.seleccionar_cliente
         )
@@ -187,7 +214,7 @@ class ConsultasController:
 
         try:
             nuevo_estado = self.modelo.alternar_pago_nota(venta_id)
-        except (ValueError, RuntimeError, sqlite3.Error) as error:
+        except (ValueError, RuntimeError, DatabaseError) as error:
             messagebox.showerror("Error", str(error))
             return
         mensaje = (
@@ -234,7 +261,7 @@ class ConsultasController:
 
         try:
             anulada = self.modelo.anular_venta(venta_id, motivo)
-        except (ValueError, RuntimeError, sqlite3.Error) as error:
+        except (ValueError, RuntimeError, DatabaseError) as error:
             messagebox.showerror("Error", str(error))
             return
         if not anulada:
@@ -251,8 +278,14 @@ class ConsultasController:
             self.consultar_notas_pendientes()
         elif self.consulta_actual == "cliente":
             self.consultar_notas_cliente()
-        elif self.consulta_actual == "reposicion":
-            self.consultar_reposicion()
+        elif self.consulta_actual == "bajo_stock":
+            self.consultar_bajo_stock()
+        elif self.consulta_actual == "sin_movimiento":
+            self.consultar_sin_movimiento()
+        elif self.consulta_actual == "proveedor":
+            self.consultar_por_proveedor()
+        elif self.consulta_actual == "marca":
+            self.consultar_por_marca()
         else:
             self.consultar_periodo()
 
@@ -260,7 +293,7 @@ class ConsultasController:
         self.consulta_actual = "pendientes"
         try:
             datos = self.modelo.notas_pendientes_por_pagar()
-        except (ValueError, RuntimeError, sqlite3.Error) as error:
+        except (ValueError, RuntimeError, DatabaseError) as error:
             messagebox.showerror("Error", str(error))
             return
 
@@ -349,7 +382,7 @@ class ConsultasController:
         self.indice_cliente = -1
         try:
             notas = self.modelo.obtener_historial_notas(fecha_inicio, fecha_fin)
-        except (ValueError, RuntimeError, sqlite3.Error) as error:
+        except (ValueError, RuntimeError, DatabaseError) as error:
             messagebox.showerror("Error en consulta", str(error))
             return
 
@@ -364,7 +397,11 @@ class ConsultasController:
         cliente = self.cliente_seleccionado
         texto = self.vista.txt_cliente.obtener_texto().strip()
         if not cliente and texto:
-            coincidencias = self.clientes_model.buscar_sugerencias(texto, 6)
+            try:
+                coincidencias = self.clientes_model.buscar_sugerencias(texto, 6)
+            except DatabaseError as error:
+                messagebox.showerror("Error de base de datos", str(error))
+                return
             exactas = [
                 (documento, nombre)
                 for documento, nombre in coincidencias
@@ -386,7 +423,7 @@ class ConsultasController:
                 self.vista.txt_fecha_fin.obtener_texto(),
                 cliente,
             )
-        except (ValueError, RuntimeError, sqlite3.Error) as error:
+        except (ValueError, RuntimeError, DatabaseError) as error:
             messagebox.showerror("Error en consulta", str(error))
             return
 
@@ -396,36 +433,139 @@ class ConsultasController:
         self.vista.ultimo_resultado = {"columnas": columnas, "filas": filas}
         self.actualizar_acciones_nota()
 
-    def consultar_reposicion(self):
-        self.consulta_actual = "reposicion"
-        dias = self.vista.txt_dias_analisis.obtener_texto().strip()
+    def consultar_bajo_stock(self):
+        """Muestra productos cuya existencia está en o bajo el mínimo definido."""
+        self.consulta_actual = "bajo_stock"
         try:
-            productos = self.modelo.obtener_productos_urgentes_reponer(dias)
-        except (ValueError, RuntimeError, sqlite3.Error) as error:
+            productos = self.modelo.obtener_productos_bajo_stock()
+        except (ValueError, RuntimeError, DatabaseError) as error:
             messagebox.showerror("Error en consulta", str(error))
             return
+        columnas = ["Código", "Producto", "Stock", "Mínimo"]
+        filas = [
+            (
+                producto["codigo"],
+                producto["nombre"],
+                producto["stock"],
+                producto["stock_minimo"],
+            )
+            for producto in productos
+        ]
+        self._mostrar_resultado_productos(columnas, filas)
 
+    def consultar_sin_movimiento(self):
+        """Muestra productos activos sin ventas durante el período indicado."""
+        self.consulta_actual = "sin_movimiento"
+        dias = self.vista.txt_dias_analisis.obtener_texto().strip()
+        try:
+            productos = self.modelo.obtener_productos_sin_movimiento(dias)
+        except (ValueError, RuntimeError, DatabaseError) as error:
+            messagebox.showerror("Error en consulta", str(error))
+            return
+        columnas = ["Código", "Producto", "Stock", "Última venta"]
+        filas = [
+            (
+                producto["codigo"],
+                producto["nombre"],
+                producto["stock"],
+                producto["ultima_venta"] or "Sin ventas",
+            )
+            for producto in productos
+        ]
+        self._mostrar_resultado_productos(columnas, filas)
+
+    def consultar_por_proveedor(self):
+        """Muestra productos filtrados por el proveedor escrito en el filtro."""
+        self.consulta_actual = "proveedor"
+        try:
+            productos = self.modelo.obtener_productos_por_proveedor(
+                self.vista.txt_proveedor.obtener_texto()
+            )
+        except (ValueError, RuntimeError, DatabaseError) as error:
+            messagebox.showerror("Error en consulta", str(error))
+            return
+        self._mostrar_productos_con_catalogo(productos)
+
+    def consultar_por_marca(self):
+        """Muestra productos filtrados por la marca escrita en el filtro."""
+        self.consulta_actual = "marca"
+        try:
+            productos = self.modelo.obtener_productos_por_marca(
+                self.vista.txt_marca.obtener_texto()
+            )
+        except (ValueError, RuntimeError, DatabaseError) as error:
+            messagebox.showerror("Error en consulta", str(error))
+            return
+        self._mostrar_productos_con_catalogo(productos)
+
+    def _mostrar_productos_con_catalogo(self, productos):
         columnas = [
             "Código",
             "Producto",
+            "Marca",
+            "Proveedor",
             "Stock",
             "Mínimo",
-            "Vendidos",
-            "Promedio/día",
-            "Cobertura días",
-            "Prioridad",
+            "Estado",
         ]
-        claves = (
-            "codigo",
-            "nombre",
-            "stock",
-            "stock_minimo",
-            "unidades_vendidas",
-            "promedio_diario",
-            "dias_cobertura",
-            "prioridad",
-        )
-        filas = [tuple(producto[clave] for clave in claves) for producto in productos]
+        filas = [
+            (
+                producto["codigo"],
+                producto["nombre"],
+                producto["marca"],
+                producto["proveedor"],
+                producto["stock"],
+                producto["stock_minimo"],
+                producto["estado"],
+            )
+            for producto in productos
+        ]
+        self._mostrar_resultado_productos(columnas, filas)
+
+    def _mostrar_resultado_productos(self, columnas, filas):
         self.vista.mostrar_tabla(columnas, filas)
         self.vista.ultimo_resultado = {"columnas": columnas, "filas": filas}
         self.actualizar_acciones_nota()
+
+    def imprimir_resultado_actual(self):
+        """Guarda en PDF el resultado que se muestra actualmente en la tabla."""
+        resultado = self.vista.ultimo_resultado or {}
+        columnas = resultado.get("columnas", [])
+        filas = resultado.get("filas", [])
+        if not columnas:
+            messagebox.showwarning(
+                "Atención", "Primero realiza una consulta para generar el reporte."
+            )
+            return
+
+        titulos = {
+            "pendientes": "Notas pendientes de pago",
+            "periodo": "Historial de notas",
+            "cliente": "Historial de notas por cliente",
+            "bajo_stock": "Inventario bajo stock mínimo",
+            "sin_movimiento": "Productos sin movimiento",
+            "proveedor": "Productos por proveedor",
+            "marca": "Productos por marca",
+        }
+        titulo = titulos.get(self.consulta_actual, "Reporte de consultas")
+        nombre = f"{titulo.replace(' ', '_')}.pdf"
+        ruta = filedialog.asksaveasfilename(
+            title="Guardar reporte para imprimir",
+            initialfile=nombre,
+            defaultextension=".pdf",
+            filetypes=[("Archivos PDF", "*.pdf")],
+        )
+        if not ruta:
+            return
+        try:
+            PDFService.generar_reporte_consulta(ruta, titulo, columnas, filas)
+            if sys.platform == "win32":
+                os.startfile(ruta)
+            elif sys.platform == "darwin":
+                subprocess.run(["open", ruta], check=True)
+            else:
+                subprocess.run(["xdg-open", ruta], check=True)
+        except (OSError, subprocess.SubprocessError) as error:
+            messagebox.showerror("Error", f"No se pudo generar el reporte: {error}")
+            return
+        messagebox.showinfo("Reporte generado", "El PDF se abrió para su impresión.")

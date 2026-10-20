@@ -1,10 +1,10 @@
 from contextlib import closing
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from database.conexion import transaccion
 from database.errores import InventarioInsuficienteError, ValidacionError
-from servicios.auditoria import registrar_evento
-from servicios.respaldo import crear_respaldo
+from servicios.auditoria import registrar_evento, requerir_administrador
 
 
 class VentasModel:
@@ -68,6 +68,7 @@ class VentasModel:
 
     def procesar_venta_bd(self, cliente_doc=None, estado="Pagado", dias_credito=30):
         """Descuenta stock y guarda cabecera/detalles, retornando el ID de la venta y datos del cliente."""
+        requerir_administrador("ventas.realizar")
         if not self.carrito:
             return None, None
         cliente_fmt = (cliente_doc or "").strip().upper()
@@ -104,14 +105,12 @@ class VentasModel:
         else:
             dias_credito = 0
 
-        total = self.calcular_total()
-        total_centavos = int(total * 100)
-        crear_respaldo()
         with transaccion() as conn:
             cursor = conn.cursor()
 
             cursor.execute(
-                "SELECT documento, nombre, telefono, direccion FROM clientes WHERE UPPER(documento) = ?",
+                "SELECT documento, nombre, telefono, direccion FROM clientes "
+                "WHERE documento = %s AND activo = 1",
                 (cliente_fmt,),
             )
             cliente_info = cursor.fetchone()
@@ -127,17 +126,58 @@ class VentasModel:
                 "direccion": cliente_info[3],
             }
 
+            # Une códigos repetidos; los precios del carrito se ignoran.
+            cantidades = {}
             for item in self.carrito:
+                codigo = item["codigo"]
+                cantidades[codigo] = cantidades.get(codigo, 0) + item["cantidad"]
+
+            # Bloqueo en orden de código para evitar deadlocks y condiciones
+            # de carrera hasta el COMMIT.
+            items_venta = []
+            for codigo in sorted(cantidades):
+                cursor.execute(
+                    "SELECT codigo, nombre, precio_centavos, stock FROM productos "
+                    "WHERE codigo = %s AND activo = 1 FOR UPDATE",
+                    (codigo,),
+                )
+                producto = cursor.fetchone()
+                if producto is None:
+                    raise InventarioInsuficienteError(codigo, 0)
+                cantidad = cantidades[codigo]
+                if producto[3] < cantidad:
+                    raise InventarioInsuficienteError(codigo, producto[3])
+                precio = Decimal(producto[2]) / Decimal("100")
+                subtotal = (cantidad * precio).quantize(Decimal("0.01"))
+                items_venta.append(
+                    {
+                        "codigo": producto[0],
+                        "nombre": producto[1],
+                        "cantidad": cantidad,
+                        "precio": precio,
+                        "subtotal": subtotal,
+                    }
+                )
+
+            total_centavos = sum(int(item["subtotal"] * 100) for item in items_venta)
+            total = Decimal(total_centavos) / Decimal("100")
+            fecha_vencimiento = (
+                (date.today() + timedelta(days=dias_credito)).isoformat()
+                if es_credito
+                else None
+            )
+
+            for item in items_venta:
                 cursor.execute(
                     """
-                    UPDATE productos SET stock = stock - ?
-                    WHERE codigo = ? AND stock >= ?
+                    UPDATE productos SET stock = stock - %s
+                    WHERE codigo = %s AND activo = 1 AND stock >= %s
                     """,
                     (item["cantidad"], item["codigo"], item["cantidad"]),
                 )
                 if cursor.rowcount != 1:
                     cursor.execute(
-                        "SELECT stock FROM productos WHERE codigo = ?",
+                        "SELECT stock FROM productos WHERE codigo = %s",
                         (item["codigo"],),
                     )
                     fila = cursor.fetchone()
@@ -150,7 +190,7 @@ class VentasModel:
                     cliente_documento, total, total_centavos, estado,
                     dias_credito, fecha_vencimiento
                 )
-                VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN DATE('now', '+' || ? || ' days') END)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 (
                     cliente_fmt,
@@ -158,13 +198,12 @@ class VentasModel:
                     total_centavos,
                     estado_fmt,
                     dias_credito,
-                    es_credito,
-                    dias_credito,
+                    fecha_vencimiento,
                 ),
             )
             venta_id = cursor.lastrowid
             cursor.execute(
-                "SELECT fecha, dias_credito, fecha_vencimiento FROM ventas WHERE id = ?",
+                "SELECT fecha, dias_credito, fecha_vencimiento FROM ventas WHERE id = %s",
                 (venta_id,),
             )
             venta_info = cursor.fetchone()
@@ -172,13 +211,13 @@ class VentasModel:
             cliente_data["dias_credito"] = venta_info[1]
             cliente_data["fecha_vencimiento"] = venta_info[2]
 
-            for item in self.carrito:
+            for item in items_venta:
                 cursor.execute(
                     """
                     INSERT INTO detalles_venta (
                         venta_id, producto_codigo, cantidad, precio_unitario,
                         subtotal, precio_unitario_centavos, subtotal_centavos
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         venta_id,
@@ -192,7 +231,7 @@ class VentasModel:
                 )
 
             subtotal_centavos = cursor.execute(
-                "SELECT COALESCE(SUM(subtotal_centavos), 0) FROM detalles_venta WHERE venta_id = ?",
+                "SELECT COALESCE(SUM(subtotal_centavos), 0) FROM detalles_venta WHERE venta_id = %s",
                 (venta_id,),
             ).fetchone()[0]
             if subtotal_centavos != total_centavos:
@@ -208,12 +247,12 @@ class VentasModel:
             items_procesados = [
                 {
                     "codigo": item["codigo"],
-                    "nombre": item["producto"],
+                    "nombre": item["nombre"],
                     "cantidad": item["cantidad"],
                     "precio": float(item["precio"]),
                     "subtotal": float(item["subtotal"]),
                 }
-                for item in self.carrito
+                for item in items_venta
             ]
 
         self.vaciar_carrito()
@@ -233,7 +272,7 @@ class VentasModel:
                 """
                 SELECT id, fecha, total, total_centavos, estado, fecha_anulacion
                 FROM ventas
-                WHERE cliente_documento = ?
+                WHERE cliente_documento = %s
                 ORDER BY fecha DESC
             """,
                 (str(cliente_id).strip().upper(),),
@@ -266,7 +305,7 @@ class VentasModel:
                          v.fecha_anulacion
                 FROM ventas v
                 JOIN clientes c ON c.documento = v.cliente_documento
-                WHERE v.id = ?
+                WHERE v.id = %s
             """,
                 (venta_id,),
             )
@@ -279,7 +318,7 @@ class VentasModel:
                 SELECT d.producto_codigo, p.nombre, d.cantidad, d.precio_unitario, d.subtotal
                 FROM detalles_venta d
                 JOIN productos p ON p.codigo = d.producto_codigo
-                WHERE d.venta_id = ?
+                WHERE d.venta_id = %s
             """,
                 (venta_id,),
             )

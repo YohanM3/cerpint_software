@@ -10,6 +10,7 @@ def crear_vista_consultas():
     vista.btn_periodo = Mock()
     vista.btn_cliente = Mock()
     vista.btn_reposicion = Mock()
+    vista.btn_imprimir = Mock()
     vista.btn_cambiar_pago = Mock()
     vista.btn_anular_nota = Mock()
     vista.tabla_reportes = SimpleNamespace(tabla=Mock(), columnas=[])
@@ -133,3 +134,30 @@ def test_consultor_no_puede_cambiar_o_anular_notas():
     modelo.alternar_pago_nota.assert_not_called()
     modelo.anular_venta.assert_not_called()
     assert advertencia.call_count == 2
+
+
+def test_imprimir_resultado_actual_genera_pdf_con_las_filas_visibles():
+    controlador, vista, _, _ = crear_controlador()
+    vista.ultimo_resultado = {
+        "columnas": ["ID", "Cliente"],
+        "filas": [(1, "Cliente Uno")],
+    }
+
+    with __import__("unittest.mock").mock.patch(
+        "modulos.consultas.consultas_controller.filedialog.asksaveasfilename",
+        return_value="reporte.pdf",
+    ), __import__("unittest.mock").mock.patch(
+        "modulos.consultas.consultas_controller.PDFService.generar_reporte_consulta"
+    ) as generar_pdf, __import__(
+        "unittest.mock"
+    ).mock.patch(
+        "modulos.consultas.consultas_controller.os.startfile", create=True
+    ):
+        controlador.imprimir_resultado_actual()
+
+    generar_pdf.assert_called_once_with(
+        "reporte.pdf",
+        "Notas pendientes de pago",
+        ["ID", "Cliente"],
+        [(1, "Cliente Uno")],
+    )

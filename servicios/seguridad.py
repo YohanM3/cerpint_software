@@ -5,7 +5,7 @@ import hmac
 import secrets
 
 ALGORITMO = "pbkdf2_sha256"
-ITERACIONES = 310_000
+ITERACIONES = 600_000
 
 
 def generar_hash_clave(clave: str) -> str:
@@ -19,12 +19,20 @@ def es_hash_clave(valor: str) -> bool:
     return isinstance(valor, str) and valor.startswith(f"{ALGORITMO}$")
 
 
-def verificar_clave(clave: str, valor_guardado: str) -> bool:
-    """Compara una contraseña con un hash PBKDF2 o una clave legacy."""
-    if not isinstance(valor_guardado, str):
-        return False
+def necesita_rehash(valor_guardado: str) -> bool:
+    """Indica si el hash usa menos iteraciones que las actuales."""
     if not es_hash_clave(valor_guardado):
-        return hmac.compare_digest(clave, valor_guardado)
+        return True
+    try:
+        return int(valor_guardado.split("$")[1]) < ITERACIONES
+    except (IndexError, ValueError):
+        return True
+
+
+def verificar_clave(clave: str, valor_guardado: str) -> bool:
+    """Compara una contraseña con un hash PBKDF2; cualquier otro valor se rechaza."""
+    if not es_hash_clave(valor_guardado):
+        return False
 
     try:
         algoritmo, iteraciones, sal_hex, hash_hex = valor_guardado.split("$")

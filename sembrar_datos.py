@@ -14,6 +14,7 @@ def sembrar_datos():
     inicializar_base_de_datos()
     with transaccion() as conn:
         cursor = conn.cursor()
+        insertar_ignorar = "INSERT IGNORE"
 
         clientes_prueba = [
             ("V-12345678", "Juan Pérez", "0414-1234567", "Av. Principal Nro 12"),
@@ -34,23 +35,23 @@ def sembrar_datos():
         ]
 
         cursor.executemany(
-            """
-            INSERT OR IGNORE INTO clientes (documento, nombre, telefono, direccion)
-            VALUES (?, ?, ?, ?)
+            f"""
+            {insertar_ignorar} INTO clientes (documento, nombre, telefono, direccion)
+            VALUES (%s, %s, %s, %s)
             """,
             clientes_prueba,
         )
         print("Clientes procesados correctamente.")
 
         productos_prueba = [
-            ("PROD-001", "Martillo de Uña 16oz Stanley", 12.50, 25),
-            ("PROD-002", "Juego de Alicates 3 pzas Truper", 18.00, 15),
-            ("PROD-003", "Destornillador de Estría 1/4x4", 3.50, 50),
-            ("PROD-004", "Tubo PVC 1/2 pulgada Pavco 6m", 8.20, 100),
-            ("PROD-005", "Saco de Cemento Portland 42.5kg", 9.50, 80),
-            ("PROD-006", "Taladro Percutor 1/2 Dewalt 800W", 85.00, 8),
-            ("PROD-007", "Disco de Corte para Metal 4-1/2", 1.80, 200),
-            ("PROD-008", "Llave Ajustable 10 pulgadas Pretul", 7.00, 30),
+            ("CERP-0001", "Martillo de Uña 16oz Stanley", 12.50, 25),
+            ("CERP-0002", "Juego de Alicates 3 pzas Truper", 18.00, 15),
+            ("CERP-0003", "Destornillador de Estría 1/4x4", 3.50, 50),
+            ("CERP-0004", "Tubo PVC 1/2 pulgada Pavco 6m", 8.20, 100),
+            ("CERP-0005", "Saco de Cemento Portland 42.5kg", 9.50, 80),
+            ("CERP-0006", "Taladro Percutor 1/2 Dewalt 800W", 85.00, 8),
+            ("CERP-0007", "Disco de Corte para Metal 4-1/2", 1.80, 200),
+            ("CERP-0008", "Llave Ajustable 10 pulgadas Pretul", 7.00, 30),
         ]
 
         productos_con_centavos = [
@@ -58,10 +59,10 @@ def sembrar_datos():
             for codigo, nombre, precio, stock in productos_prueba
         ]
         cursor.executemany(
-            """
-            INSERT OR IGNORE INTO productos
+            f"""
+            {insertar_ignorar} INTO productos
                 (codigo, nombre, precio, precio_centavos, stock)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
             """,
             productos_con_centavos,
         )
@@ -85,7 +86,7 @@ def sembrar_notas_demo():
         """)
         lote = "consultas_notas_20_v1"
         if cursor.execute(
-            "SELECT 1 FROM demo_seed_runs WHERE lote = ?", (lote,)
+            "SELECT 1 FROM demo_seed_runs WHERE lote = %s", (lote,)
         ).fetchone():
             print("Las 20 notas demostrativas ya fueron creadas; no se duplicaron.")
             return
@@ -133,7 +134,7 @@ def sembrar_notas_demo():
                 INSERT INTO ventas (
                     fecha, cliente_documento, total, total_centavos, estado,
                     metodo_pago, dias_credito, fecha_vencimiento
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     f"{fecha_venta.isoformat()} 12:00:00",
@@ -152,7 +153,7 @@ def sembrar_notas_demo():
                 INSERT INTO detalles_venta (
                     venta_id, producto_codigo, cantidad, precio_unitario,
                     subtotal, precio_unitario_centavos, subtotal_centavos
-                ) VALUES (?, ?, 1, ?, ?, ?, ?)
+                ) VALUES (%s, %s, 1, %s, %s, %s, %s)
                 """,
                 (
                     venta_id,
@@ -164,7 +165,7 @@ def sembrar_notas_demo():
                 ),
             )
             cursor.execute(
-                "UPDATE productos SET stock = stock - 1 WHERE codigo = ? AND stock > 0",
+                "UPDATE productos SET stock = stock - 1 WHERE codigo = %s AND stock > 0",
                 (codigo_producto,),
             )
             if cursor.rowcount != 1:
@@ -172,7 +173,7 @@ def sembrar_notas_demo():
                     f"No se pudo descontar el stock de {codigo_producto}."
                 )
 
-        cursor.execute("INSERT INTO demo_seed_runs(lote) VALUES (?)", (lote,))
+        cursor.execute("INSERT INTO demo_seed_runs(lote) VALUES (%s)", (lote,))
 
     print("Se crearon 20 notas: 10 pagadas y 10 a crédito, sin abonos.")
 

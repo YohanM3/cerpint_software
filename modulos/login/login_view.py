@@ -15,9 +15,10 @@ from config.estilos import (
 class LoginView(ctk.CTkFrame):
     """Formulario compacto de acceso al sistema."""
 
-    def __init__(self, master, al_ingresar):
+    def __init__(self, master, al_ingresar, al_recuperar_contrasena):
         super().__init__(master=master, fg_color=COLOR_FONDO)
         self.al_ingresar = al_ingresar
+        self.al_recuperar_contrasena = al_recuperar_contrasena
         self.pack(fill="both", expand=True)
 
         self.card = ctk.CTkFrame(
@@ -106,6 +107,18 @@ class LoginView(ctk.CTkFrame):
             hover_color=COLOR_PRIMARIO_HOVER,
         )
         self.btn_login.pack()
+
+        self.btn_recuperar_contrasena = ctk.CTkButton(
+            self.card,
+            text="Recuperar contraseña (administrador)",
+            command=self.al_recuperar_contrasena,
+            fg_color="transparent",
+            hover_color=COLOR_FONDO,
+            text_color=COLOR_PRIMARIO,
+            width=288,
+            height=30,
+        )
+        self.btn_recuperar_contrasena.pack(pady=(8, 0))
 
         self.txt_usuario.bind("<Return>", self._enfocar_password)
         self.txt_password.bind("<Return>", self._enviar_login)

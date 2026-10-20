@@ -1,11 +1,10 @@
 import os
-import sqlite3
 import subprocess
 import sys
 from decimal import Decimal, InvalidOperation
 from tkinter import TclError, filedialog, messagebox
 
-from database.errores import InventarioInsuficienteError, ValidacionError
+from database.errores import DatabaseError, InventarioInsuficienteError, ValidacionError
 from modulos.ventas.ventas_model import VentasModel
 from servicios.pdf_service import PDFService
 
@@ -97,7 +96,11 @@ class VentasController:
             )
             self.cliente_actual = None
             return
-        self.sugerencias_clientes = self.clientes_model.buscar_sugerencias(texto, 5)
+        try:
+            self.sugerencias_clientes = self.clientes_model.buscar_sugerencias(texto, 5)
+        except DatabaseError as error:
+            messagebox.showerror("Error de base de datos", str(error))
+            return
         self.indice_cliente = -1
         self.vista.mostrar_sugerencias(
             self.sugerencias_clientes, self.seleccionar_cliente
@@ -147,7 +150,13 @@ class VentasController:
             self.indice_producto = -1
             self.vista.ocultar_sugerencias_productos()
             return
-        self.sugerencias_productos = self.inventario_model.buscar_sugerencias(texto, 5)
+        try:
+            self.sugerencias_productos = self.inventario_model.buscar_sugerencias(
+                texto, 5
+            )
+        except DatabaseError as error:
+            messagebox.showerror("Error de base de datos", str(error))
+            return
         self.indice_producto = -1
         self.vista.mostrar_sugerencias_productos(
             self.sugerencias_productos, self.seleccionar_producto
@@ -231,7 +240,7 @@ class VentasController:
             ValidacionError,
             InventarioInsuficienteError,
             ValueError,
-            sqlite3.Error,
+            DatabaseError,
         ) as error:
             messagebox.showwarning("Atención", str(error))
 
@@ -366,7 +375,7 @@ class VentasController:
             ValidacionError,
             InventarioInsuficienteError,
             ValueError,
-            sqlite3.Error,
+            DatabaseError,
             TclError,
         ) as error:
             messagebox.showerror("Error en Venta", str(error))
@@ -457,9 +466,9 @@ class VentasController:
             if sys.platform == "win32":
                 os.startfile(filepath)
             elif sys.platform == "darwin":
-                subprocess.run(["open", filepath])
+                subprocess.run(["open", filepath], check=True)
             else:
-                subprocess.run(["xdg-open", filepath])
+                subprocess.run(["xdg-open", filepath], check=True)
             messagebox.showinfo(
                 "Éxito",
                 f"Nota de Entrega Nº {venta_id:05d} registrada y emitida correctamente.",
@@ -471,7 +480,7 @@ class VentasController:
             InventarioInsuficienteError,
             InvalidOperation,
             OSError,
-            sqlite3.Error,
+            DatabaseError,
             subprocess.SubprocessError,
             TclError,
             TypeError,
